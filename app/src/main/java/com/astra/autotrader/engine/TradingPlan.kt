@@ -1,6 +1,10 @@
 package com.astra.autotrader.engine
 
 enum class ChartTimeframe(val seconds: Int, val labelArabic: String) {
+    S5(5, "5 ثوانٍ"),
+    S10(10, "10 ثوانٍ"),
+    S15(15, "15 ثانية"),
+    S30(30, "30 ثانية"),
     M1(60, "دقيقة واحدة"),
     M5(300, "5 دقائق"),
     M15(900, "15 دقيقة"),
