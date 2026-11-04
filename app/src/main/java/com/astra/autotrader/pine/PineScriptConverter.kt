@@ -23,9 +23,9 @@ object PineScriptConverter {
         "ta.ema", "ta.sma", "ta.rsi", "ta.macd", "ta.crossover", "ta.crossunder",
         "alertcondition", "plotshape", "plotchar", "indicator", "strategy"
     )
-    private val callPattern = Regex("""([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\s*\\(""")
-    private val declarationPattern = Regex("""^\\s*(?:var\\s+)?(?:float|int|bool|string)?\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.+)$""")
-    private val alertPattern = Regex("""alertcondition\\s*\\(\\s*(.+?)\\s*,\\s*title\\s*=\\s*"([^"]*)" """.trimEnd())
+    private val callPattern = Regex("""([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\(""")
+    private val declarationPattern = Regex("""^\s*(?:var\s+)?(?:float|int|bool|string)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$""")
+    private val alertPattern = Regex("""alertcondition\s*\(\s*(.+?)\s*,\s*title\s*=\s*"([^"]*)" """.trimEnd())
 
     fun convert(source: String): Conversion {
         val errors = mutableListOf<String>()
@@ -38,7 +38,7 @@ object PineScriptConverter {
             listOf("حجم الملف يتجاوز الحد الآمن (100 كيلوبايت)."), false)
 
         val lines = source.lines()
-        val version = Regex("""^\\s*//\\s*@version=(\\d+)""").find(source)?.groupValues?.get(1)?.toIntOrNull()
+        val version = Regex("""^\s*//\s*@version=(\d+)""").find(source)?.groupValues?.get(1)?.toIntOrNull()
         if (version != 5 && version != 6) errors += "الإصدار المدعوم حالياً هو Pine Script v5/v6 فقط."
         val declaration = lines.firstOrNull { it.trimStart().startsWith("indicator(") || it.trimStart().startsWith("strategy(") }
         val kind = when {
@@ -49,16 +49,16 @@ object PineScriptConverter {
         if (kind == null) errors += "لم يتم العثور على indicator() أو strategy() في بداية سطر."
         val title = declaration?.let { Regex("""\(\s*"([^"]+)"""").find(it)?.groupValues?.get(1) }
 
-        if (Regex("""\\b(request\\.security|request\\.seed|barmerge\\.|lookahead\\s*=\\s*barmerge\\.lookahead_on)""").containsMatchIn(source)) {
+        if (Regex("""\b(request\.security|request\.seed|barmerge\.|lookahead\s*=\s*barmerge\.lookahead_on)""").containsMatchIn(source)) {
             errors += "تم اكتشاف request.security أو lookahead؛ لا يمكن ضمان تطابق التوقيت ومنع إعادة الرسم."
         }
-        if (Regex("""\\b(for|while|switch|import|export)\\b""").containsMatchIn(source)) {
+        if (Regex("""\b(for|while|switch|import|export)\b""").containsMatchIn(source)) {
             errors += "الحلقات وswitch والاستيراد/التصدير خارج نطاق المحلل الآمن الحالي."
         }
-        if (Regex("""\\[[^]]*\\]""").containsMatchIn(source)) {
+        if (Regex("""\[[^]]*\]""").containsMatchIn(source)) {
             warnings += "استخدام فهرسة السلاسل [ ] يحتاج مراجعة يدوية وقد يغيّر توقيت الإشارة."
         }
-        if (Regex("""\\b(strategy\\.(entry|exit|order|close))\\s*\\(""").containsMatchIn(source)) {
+        if (Regex("""\b(strategy\.(entry|exit|order|close))\s*\(""").containsMatchIn(source)) {
             warnings += "أوامر strategy.entry/exit محفوظة للمراجعة فقط؛ لن يتم تنفيذها."
         }
 
@@ -72,17 +72,17 @@ object PineScriptConverter {
                     errors += "السطر ${index + 1}: الدالة غير المدعومة: $call"
                 }
             }
-            val alert = Regex("""alertcondition\\s*\\(\\s*(.+?)\\s*,\\s*title\\s*=\\s*"([^"]+)"""").find(line)
+            val alert = Regex("""alertcondition\s*\(\s*(.+?)\s*,\s*title\s*=\s*"([^"]+)"""").find(line)
             if (alert != null) signals += SignalRule(alert.groupValues[2], alert.groupValues[1].trim(), index + 1)
             val assignment = declarationPattern.find(line)
             if (assignment != null) declarations += "${assignment.groupValues[1]} = ${assignment.groupValues[2]}"
             if (line.startsWith("plotshape(") || line.startsWith("plotchar(")) {
-                val condition = Regex("""(?:plotshape|plotchar)\\s*\\(\\s*([^,]+)""").find(line)?.groupValues?.get(1)
+                val condition = Regex("""(?:plotshape|plotchar)\s*\(\s*([^,]+)""").find(line)?.groupValues?.get(1)
                 if (!condition.isNullOrBlank()) signals += SignalRule("إشارة السطر ${index + 1}", condition.trim(), index + 1)
             }
         }
         if (signals.isEmpty()) warnings += "لم يتم العثور على alertcondition أو plotshape/plotchar قابل للتحويل إلى إشارة."
-        if (Regex("""\\b(timeframe\\.period|barstate\\.isrealtime|timenow)\\b""").containsMatchIn(source)) {
+        if (Regex("""\b(timeframe\.period|barstate\.isrealtime|timenow)\b""").containsMatchIn(source)) {
             warnings += "الكود يعتمد على حالة زمنية/لحظية؛ اختبره على شموع مغلقة متطابقة قبل اعتماد الإشارات."
         }
         return Conversion(kind, title, version, declarations, signals, warnings.distinct(), errors.distinct(), errors.isEmpty())
