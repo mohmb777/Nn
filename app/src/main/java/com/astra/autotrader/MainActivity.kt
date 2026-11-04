@@ -166,6 +166,10 @@ private fun StrategyScreen(modifier: Modifier = Modifier) {
     var timeframe by remember { mutableStateOf("M1") }
     var saved by remember { mutableStateOf(false) }
     val duration = when (timeframe) {
+        "S5" -> "5 ثوانٍ"
+        "S10" -> "10 ثوانٍ"
+        "S15" -> "15 ثانية"
+        "S30" -> "30 ثانية"
         "M5" -> "5 دقائق"
         "M15" -> "15 دقيقة"
         "M30" -> "30 دقيقة"
@@ -208,7 +212,7 @@ private fun StrategyScreen(modifier: Modifier = Modifier) {
         item {
             Text("الفريم ومدة الصفقة", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("M1", "M5", "M15", "M30", "H1").forEach { frame ->
+                listOf("S5", "S10", "S15", "S30", "M1", "M5", "M15", "M30", "H1").forEach { frame ->
                     FilterChip(
                         selected = timeframe == frame,
                         onClick = { timeframe = frame; saved = false },
@@ -216,7 +220,8 @@ private fun StrategyScreen(modifier: Modifier = Modifier) {
                     )
                 }
             }
-            Text("المدة المحددة: $duration")
+            Text("مدة الصفقة تلقائياً: $duration")
+            Text("مدة الصفقة تساوي الفريم المختار؛ يجب التحقق من دعم المنصة للمدة قبل التنفيذ.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
         item {
             Button(
