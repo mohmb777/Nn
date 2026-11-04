@@ -124,6 +124,10 @@ private fun PocketBrowser(modifier: Modifier = Modifier) {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.javaScriptCanOpenWindowsAutomatically = false
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                    settings.safeBrowsingEnabled = true
                     webViewClient = WebViewClient()
                     loadUrl(address)
                 }
