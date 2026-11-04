@@ -138,12 +138,82 @@ private fun PocketBrowser(modifier: Modifier = Modifier) {
 
 @Composable
 private fun StrategyScreen(modifier: Modifier = Modifier) {
+    var strategy by remember { mutableStateOf("macd_12_26_9") }
+    var symbol by remember { mutableStateOf("") }
+    var stake by remember { mutableStateOf("1") }
+    var timeframe by remember { mutableStateOf("M1") }
+    var saved by remember { mutableStateOf(false) }
+    val duration = when (timeframe) {
+        "M5" -> "5 دقائق"
+        "M15" -> "15 دقيقة"
+        "M30" -> "30 دقيقة"
+        "H1" -> "ساعة"
+        else -> "دقيقة واحدة"
+    }
     LazyColumn(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("الاستراتيجيات", style = MaterialTheme.typography.headlineSmall) }
-        item { InfoCard("تقاطع MACD", "الإعدادات الافتراضية: 12 / 26 / 9 — يحتاج ربط بيانات الشموع.") }
-        item { InfoCard("الدعم والمقاومة", "كشف القمم والقيعان والاختراق وإعادة الاختبار — قيد التطوير.") }
-        item { InfoCard("استيراد TradingView", "إضافة كود Pine Script وتحليل شروطه عبر OpenRouter — غير موصول بعد.") }
-        item { InfoCard("إعدادات OpenRouter", "أضف المفتاح لاحقاً من شاشة الإعدادات الآمنة. لا تضعه داخل ملفات المشروع.") }
+        item { Text("خطة التداول التجريبي", style = MaterialTheme.typography.headlineSmall) }
+        item {
+            InfoCard("وضع الحساب", "تجريبي فقط. يجب فتح حساب Demo يدوياً في المنصة والتحقق منه قبل السماح بأي أمر.")
+        }
+        item {
+            Text("الاستراتيجية", style = MaterialTheme.typography.titleMedium)
+            listOf("macd_12_26_9" to "تقاطع MACD", "support_resistance" to "الدعم والمقاومة").forEach { item ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = strategy == item.first, onClick = { strategy = item.first; saved = false })
+                    Text(item.second)
+                }
+            }
+        }
+        item {
+            OutlinedTextField(
+                value = symbol,
+                onValueChange = { symbol = it.uppercase(); saved = false },
+                label = { Text("زوج التداول (كما يظهر في المنصة)") },
+                placeholder = { Text("مثال: EURUSD OTC") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = stake,
+                onValueChange = { stake = it; saved = false },
+                label = { Text("مبلغ الصفقة التجريبية") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            Text("الفريم ومدة الصفقة", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf("M1", "M5", "M15", "M30", "H1").forEach { frame ->
+                    FilterChip(
+                        selected = timeframe == frame,
+                        onClick = { timeframe = frame; saved = false },
+                        label = { Text(frame) }
+                    )
+                }
+            }
+            Text("المدة المحددة: $duration")
+        }
+        item {
+            Button(
+                onClick = {
+                    saved = symbol.isNotBlank() && (stake.toDoubleOrNull()?.let { it > 0.0 && it.isFinite() } == true)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("حفظ الخطة") }
+            if (saved) {
+                Text("تم حفظ إعدادات الخطة محلياً لهذه الجلسة. هذا لا يعني أن التنفيذ متصل.")
+            } else {
+                Text("املأ الزوج والمبلغ الصحيحين ثم احفظ الخطة.")
+            }
+        }
+        item { Divider() }
+        item { InfoCard("حالة ربط الشموع", "غير متصل — لا توجد قراءة مؤكدة لشموع المنصة حتى الآن.") }
+        item { InfoCard("حالة تنفيذ الأوامر", "معطّل بأمان — لم يتم ربط واجهة تنفيذ تجريبية موثقة.") }
+        item { InfoCard("استيراد TradingView", "تحليل كود Pine Script غير موصول بعد. لا يتم تشغيل كود خارجي داخل التطبيق.") }
+        item { InfoCard("إعدادات OpenRouter", "غير موصولة بعد. لا تضع مفتاح API في ملفات المشروع أو داخل صفحة الويب.") }
     }
 }
 
