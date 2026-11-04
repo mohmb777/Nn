@@ -3,6 +3,8 @@ package com.astra.autotrader
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +22,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import com.astra.autotrader.engine.EngineState
 import com.astra.autotrader.engine.TradingForegroundService
 import com.astra.autotrader.browser.PocketChartDiagnostics
+import com.astra.autotrader.pine.PineScriptConverter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,11 +44,11 @@ private fun AstraApp() {
             },
             bottomBar = {
                 NavigationBar {
-                    listOf("لوحة التحكم", "المتصفح", "الاستراتيجيات", "السجل").forEach {
+                    listOf("لوحة التحكم", "المتصفح", "الاستراتيجيات", "Pine Script", "السجل").forEach {
                         NavigationBarItem(
                             selected = selected == it,
                             onClick = { selected = it },
-                            icon = { Text(when (it) { "المتصفح" -> "🌐"; "الاستراتيجيات" -> "📊"; "السجل" -> "📋"; else -> "⌂" }) },
+                            icon = { Text(when (it) { "المتصفح" -> "🌐"; "الاستراتيجيات" -> "📊"; "Pine Script" -> "🧩"; "السجل" -> "📋"; else -> "⌂" }) },
                             label = { Text(it) }
                         )
                     }
@@ -55,6 +58,7 @@ private fun AstraApp() {
             when (selected) {
                 "المتصفح" -> PocketBrowser(Modifier.padding(padding))
                 "الاستراتيجيات" -> StrategyScreen(Modifier.padding(padding))
+                "Pine Script" -> PineConverterScreen(Modifier.padding(padding))
                 "السجل" -> SimplePage("سجل الصفقات", "سيظهر هنا سجل الصفقات ونتائج الاختبار.", Modifier.padding(padding))
                 else -> Dashboard(
                     running = running,
@@ -251,8 +255,82 @@ private fun StrategyScreen(modifier: Modifier = Modifier) {
         item { Divider() }
         item { InfoCard("حالة ربط الشموع", "غير متصل — لا توجد قراءة مؤكدة لشموع المنصة حتى الآن.") }
         item { InfoCard("حالة تنفيذ الأوامر", "معطّل بأمان — لم يتم ربط واجهة تنفيذ تجريبية موثقة.") }
-        item { InfoCard("استيراد TradingView", "تحليل كود Pine Script غير موصول بعد. لا يتم تشغيل كود خارجي داخل التطبيق.") }
+        item { InfoCard("محوّل Pine Script", "افتح تبويب Pine Script للصق الكود أو استيراد ملف .pine وتحليل الجزء المدعوم بأمان.") }
         item { InfoCard("إعدادات OpenRouter", "غير موصولة بعد. لا تضع مفتاح API في ملفات المشروع أو داخل صفحة الويب.") }
+    }
+}
+
+@Composable
+private fun PineConverterScreen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var source by remember { mutableStateOf("") }
+    var result by remember { mutableStateOf<PineScriptConverter.Conversion?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?: error("تعذرت قراءة الملف")
+            }.onSuccess { source = it; result = null }
+                .onFailure { result = PineScriptConverter.convert("") }
+        }
+    }
+    LazyColumn(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("محوّل Pine Script", style = MaterialTheme.typography.headlineSmall) }
+        item { Text("الصق كود Pine Script v5/v6 أو استورد ملف .pine. المحلل لا ينفذ الكود؛ يعرض فقط الشروط التي يستطيع التحقق منها.") }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }, modifier = Modifier.weight(1f)) {
+                    Text("استيراد ملف .pine")
+                }
+                OutlinedButton(onClick = { source = ""; result = null }, modifier = Modifier.weight(1f)) { Text("مسح") }
+            }
+        }
+        item {
+            OutlinedTextField(
+                value = source,
+                onValueChange = { source = it; result = null },
+                label = { Text("كود Pine Script") },
+                placeholder = { Text("//@version=5\nindicator(\"My indicator\")\n...") },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp),
+                minLines = 8
+            )
+        }
+        item {
+            Button(onClick = { result = PineScriptConverter.convert(source) }, enabled = source.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                Text("تحليل وتحويل")
+            }
+        }
+        result?.let { converted ->
+            item { InfoCard("نوع السكربت", when (converted.kind) {
+                PineScriptConverter.ScriptKind.INDICATOR -> "مؤشر"
+                PineScriptConverter.ScriptKind.STRATEGY -> "استراتيجية"
+                null -> "غير محدد"
+            } + (converted.title?.let { " — $it" } ?: "")) }
+            item { InfoCard("نتيجة التحليل", if (converted.supported) "اجتاز الفحص البنيوي — ليس إثباتاً لتطابق الإشارات." else "تعذر التحويل الكامل؛ راجع الأخطاء أدناه.") }
+            converted.errors.forEach { message -> item { Text("خطأ: $message", color = MaterialTheme.colorScheme.error) } }
+            converted.warnings.forEach { message -> item { Text("تنبيه: $message", color = MaterialTheme.colorScheme.tertiary) } }
+            if (converted.declarations.isNotEmpty()) {
+                item { Text("التعريفات المكتشفة", style = MaterialTheme.typography.titleMedium) }
+                converted.declarations.forEach { line -> item { Text(line, style = MaterialTheme.typography.bodySmall) } }
+            }
+            if (converted.signals.isNotEmpty()) {
+                item { Text("شروط الإشارة المكتشفة", style = MaterialTheme.typography.titleMedium) }
+                converted.signals.forEach { signal ->
+                    item {
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(signal.name, style = MaterialTheme.typography.titleSmall)
+                                Text("السطر ${signal.sourceLine}: ${signal.expression}", style = MaterialTheme.typography.bodySmall)
+                                Text("تحتاج مطابقة OHLC قبل ربطها بـ CALL/PUT.", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            InfoCard("حدود التشغيل الآمن", "لا يوجد تنفيذ للكود ولا أوامر تداول. لا تزال قراءة OHLC من شارت Pocket Option ومنفذ Demo غير موصولين؛ الناتج للمعاينة فقط. لا تستخدمه لاتخاذ صفقة قبل التحقق.")
+        }
     }
 }
 
