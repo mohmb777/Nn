@@ -39,7 +39,7 @@ class TradingForegroundService : Service() {
         NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("ASTRA — محرك التداول")
-            .setContentText("المحرك يعمل في الوضع التجريبي")
+            .setContentText("مراقبة محلية فقط — لا تُرسل أوامر تداول")
             .setOngoing(true)
             .build()
 
