@@ -15,6 +15,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import com.astra.autotrader.engine.EngineState
 import com.astra.autotrader.engine.TradingForegroundService
 
@@ -30,6 +32,7 @@ private fun AstraApp() {
     var running by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf("لوحة التحكم") }
     val context = LocalContext.current
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
     MaterialTheme(colorScheme = darkColorScheme()) {
         Scaffold(
             topBar = {
@@ -68,6 +71,7 @@ private fun AstraApp() {
                 )
             }
         }
+    }
     }
 }
 
