@@ -89,7 +89,7 @@ private fun Dashboard(running: Boolean, onStart: () -> Unit, onStop: () -> Unit,
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("حالة محرك التداول", style = MaterialTheme.typography.titleLarge)
                     Text(if (running) "يعمل — وضع تجريبي" else "متوقف", color = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                    Text("التداول الحقيقي معطّل حتى اكتمال فحص بيانات الشارت والتنفيذ.")
+                    Text("المراقبة التجريبية فقط. لا يتم إرسال أوامر حتى التحقق من حساب Demo وربط واجهة التنفيذ.")
                 }
             }
         }
@@ -102,7 +102,8 @@ private fun Dashboard(running: Boolean, onStart: () -> Unit, onStop: () -> Unit,
         item { InfoCard("الاستراتيجية النشطة", "لم يتم اختيار استراتيجية") }
         item { InfoCard("زوج التداول", "يتم تحديده من داخل المتصفح") }
         item { InfoCard("الإطار الزمني", "غير محدد") }
-        item { InfoCard("آخر إشارة", "انتظار بيانات الشموع") }
+        item { InfoCard("آخر إشارة", "لا توجد بيانات شموع موثقة — لا توجد إشارة تداول") }
+        item { InfoCard("التنفيذ", "مغلق بأمان حتى التأكد من أن الحساب تجريبي") }
         item { InfoCard("وضع التشغيل", "تجريبي فقط — لا يتم إرسال صفقات حقيقية") }
     }
 }
