@@ -25,7 +25,6 @@ object PineScriptConverter {
     )
     private val callPattern = Regex("""([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\(""")
     private val declarationPattern = Regex("""^\s*(?:var\s+)?(?:float|int|bool|string)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$""")
-    private val alertPattern = Regex("""alertcondition\s*\(\s*(.+?)\s*,\s*title\s*=\s*"([^"]*)" """.trimEnd())
 
     fun convert(source: String): Conversion {
         val errors = mutableListOf<String>()
