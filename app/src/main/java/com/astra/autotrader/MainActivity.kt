@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.astra.autotrader.engine.EngineState
 import com.astra.autotrader.engine.TradingForegroundService
+import com.astra.autotrader.browser.PocketChartDiagnostics
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,7 +105,7 @@ private fun Dashboard(running: Boolean, onStart: () -> Unit, onStop: () -> Unit,
         item { InfoCard("الإطار الزمني", "غير محدد") }
         item { InfoCard("آخر إشارة", "لا توجد بيانات شموع موثقة — لا توجد إشارة تداول") }
         item { InfoCard("التنفيذ", "مغلق بأمان حتى التأكد من أن الحساب تجريبي") }
-        item { InfoCard("وضع التشغيل", "تجريبي فقط — لا يتم إرسال صفقات حقيقية") }
+        item { InfoCard("وضع التشغيل", "Demo للاختبار فقط. الحقيقي مقفول برمجياً أثناء التطوير والاختبار.") }
     }
 }
 
@@ -118,6 +119,7 @@ private fun PocketBrowser(modifier: Modifier = Modifier) {
     val homeUrl = "https://pocketoption.com"
     var webView by remember { mutableStateOf<WebView?>(null) }
     var pageTitle by remember { mutableStateOf("Pocket Option") }
+    var chartDiagnostics by remember { mutableStateOf("لم يبدأ فحص بنية الشارت بعد.") }
     Column(modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("متصفح Pocket Option", style = MaterialTheme.typography.titleMedium)
@@ -132,6 +134,16 @@ private fun PocketBrowser(modifier: Modifier = Modifier) {
                 Button(onClick = { webView?.loadUrl(homeUrl) }, enabled = webView != null, modifier = Modifier.weight(1f)) { Text("الرئيسية") }
             }
             Text(pageTitle, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            OutlinedButton(
+                onClick = {
+                    webView?.evaluateJavascript(PocketChartDiagnostics.script) { result ->
+                        chartDiagnostics = result?.removeSurrounding("\\\"") ?: "تعذر تنفيذ الفحص"
+                    }
+                },
+                enabled = webView != null,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("فحص بنية الشارت") }
+            Text(chartDiagnostics, style = MaterialTheme.typography.bodySmall)
         }
         AndroidView(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -179,7 +191,7 @@ private fun StrategyScreen(modifier: Modifier = Modifier) {
     LazyColumn(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("خطة التداول التجريبي", style = MaterialTheme.typography.headlineSmall) }
         item {
-            InfoCard("وضع الحساب", "تجريبي فقط. يجب فتح حساب Demo يدوياً في المنصة والتحقق منه قبل السماح بأي أمر.")
+            InfoCard("وضع الحساب", "وضع Demo للاختبار. الحقيقي محظور أثناء التطوير؛ لم يتم التحقق آلياً من نوع الحساب ولا يسمح التطبيق بإرسال أوامر حالياً.")
         }
         item {
             Text("الاستراتيجية", style = MaterialTheme.typography.titleMedium)
