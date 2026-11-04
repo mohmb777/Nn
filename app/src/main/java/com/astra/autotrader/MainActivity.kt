@@ -195,7 +195,7 @@ private fun StrategyScreen(modifier: Modifier = Modifier) {
         }
         item {
             Text("الاستراتيجية", style = MaterialTheme.typography.titleMedium)
-            listOf("macd_12_26_9" to "تقاطع MACD", "support_resistance" to "الدعم والمقاومة").forEach { item ->
+            listOf("macd_12_26_9" to "تقاطع MACD", "ema_rsi_confluence" to "توافق EMA 9/21 + RSI 14", "support_resistance" to "الدعم والمقاومة").forEach { item ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = strategy == item.first, onClick = { strategy = item.first; saved = false })
                     Text(item.second)
