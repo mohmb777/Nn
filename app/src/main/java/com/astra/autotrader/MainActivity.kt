@@ -137,7 +137,7 @@ private fun PocketBrowser(modifier: Modifier = Modifier) {
             OutlinedButton(
                 onClick = {
                     webView?.evaluateJavascript(PocketChartDiagnostics.script) { result ->
-                        chartDiagnostics = result?.trim('\"') ?: "تعذر تنفيذ الفحص"
+                        chartDiagnostics = result?.let { if (it.length >= 2) it.substring(1, it.length - 1) else it } ?: "تعذر تنفيذ الفحص"
                     }
                 },
                 enabled = webView != null,
