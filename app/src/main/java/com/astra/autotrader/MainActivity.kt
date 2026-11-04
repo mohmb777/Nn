@@ -88,8 +88,8 @@ private fun Dashboard(running: Boolean, onStart: () -> Unit, onStop: () -> Unit,
             Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("حالة محرك التداول", style = MaterialTheme.typography.titleLarge)
-                    Text(if (running) "يعمل — وضع تجريبي" else "متوقف", color = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                    Text("المراقبة التجريبية فقط. لا يتم إرسال أوامر حتى التحقق من حساب Demo وربط واجهة التنفيذ.")
+                    Text(if (running) "المراقبة المحلية تعمل" else "متوقف", color = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                    Text("تشغيل خدمة المراقبة لا يعني أن بيانات الشموع أو تنفيذ الصفقات متصلان. لا يرسل التطبيق أوامر إلى Pocket Option.")
                 }
             }
         }
@@ -115,11 +115,26 @@ private fun InfoCard(title: String, value: String) {
 
 @Composable
 private fun PocketBrowser(modifier: Modifier = Modifier) {
-    var address by remember { mutableStateOf("https://pocketoption.com") }
+    val homeUrl = "https://pocketoption.com"
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    var pageTitle by remember { mutableStateOf("Pocket Option") }
     Column(modifier.fillMaxSize()) {
-        Text("متصفح Pocket Option", Modifier.padding(12.dp), style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("متصفح Pocket Option", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "حالة الحساب: غير متحقق منها. افتح Demo يدوياً داخل المنصة؛ لا يمكن إثبات نوع الحساب من شكل الصفحة وحده.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { webView?.goBack() }, enabled = webView?.canGoBack() == true, modifier = Modifier.weight(1f)) { Text("رجوع") }
+                OutlinedButton(onClick = { webView?.reload() }, enabled = webView != null, modifier = Modifier.weight(1f)) { Text("تحديث") }
+                Button(onClick = { webView?.loadUrl(homeUrl) }, enabled = webView != null, modifier = Modifier.weight(1f)) { Text("الرئيسية") }
+            }
+            Text(pageTitle, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
             factory = { ctx ->
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
@@ -129,10 +144,16 @@ private fun PocketBrowser(modifier: Modifier = Modifier) {
                     settings.allowContentAccess = false
                     settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     settings.safeBrowsingEnabled = true
-                    webViewClient = WebViewClient()
-                    loadUrl(address)
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView, url: String) {
+                            pageTitle = view.title?.takeIf { it.isNotBlank() } ?: url
+                        }
+                    }
+                    webView = this
+                    loadUrl(homeUrl)
                 }
-            }
+            },
+            update = { view -> if (webView !== view) webView = view }
         )
     }
 }
