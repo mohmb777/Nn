@@ -48,7 +48,8 @@ object BacktestEngine {
             val signal = StrategyEngine.macdSignal(history) ?: continue
             if (signal.direction == TradeDirection.WAIT) continue
 
-            val entry = closed[i].close
+            // تدخل الصفقة عند افتتاح الشمعة التالية لإشارة أُغلقت بالفعل.
+            val entry = closed[i + 1].open
             val exit = closed[i + expiryCandles].close
             val won = when (signal.direction) {
                 TradeDirection.CALL -> exit > entry
