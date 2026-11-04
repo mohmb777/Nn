@@ -28,6 +28,14 @@ class TradingPlanTest {
         assertEquals(DemoOrderStatus.REJECTED, coordinator.execute(plan, signal, proof).status)
     }
 
+    @Test fun rejectsExpiredDemoAccountProof() = runBlocking {
+        val coordinator = DemoOrderCoordinator(DisabledDemoExecutionPort()) { 50_001L }
+        val plan = TradingPlan("macd_12_26_9", "EURUSD", ChartTimeframe.M1, 1.0)
+        val proof = DemoAccountProof(AccountMode.DEMO, 10_000L, "test")
+        val result = coordinator.execute(plan, signal, proof)
+        assertEquals(DemoOrderStatus.REJECTED, result.status)
+    }
+
     @Test fun disabledAdapterNeverClaimsOrderWasPlaced() = runBlocking {
         val adapter = DisabledDemoExecutionPort()
         val result = adapter.submit(DemoOrderRequest(TradeDirection.CALL, 1.0, 60, "EURUSD"))
