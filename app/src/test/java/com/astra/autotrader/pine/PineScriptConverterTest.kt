@@ -123,6 +123,38 @@ class PineScriptConverterTest {
         assertNotNull(result.signals.single().compiledExpression)
     }
 
+    @Test fun crossunderProducesPutWhenTitleIsPut() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Crossunder")
+            fast = ta.ema(close, 1)
+            slow = ta.sma(close, 2)
+            alertcondition(ta.crossunder(fast, slow), title="PUT")
+        """.trimIndent())
+        assertTrue(result.supported)
+        val bars = listOf(
+            PineOhlcBar(1, 12.0, 12.0, 12.0, 12.0),
+            PineOhlcBar(2, 13.0, 13.0, 13.0, 13.0),
+            PineOhlcBar(3, 10.0, 10.0, 10.0, 10.0)
+        )
+        assertEquals(PineSignalAction.PUT, PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 2).action)
+    }
+
+    @Test fun macdTupleIsEvaluatedAgainstTheSameOhlcBars() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("MACD")
+            [macdLine, signalLine, histLine] = ta.macd(close, 2, 3, 2)
+            alertcondition(macdLine > signalLine, title="CALL")
+        """.trimIndent())
+        assertTrue(result.supported)
+        val bars = (1L..5L).map { n ->
+            val close = n.toDouble()
+            PineOhlcBar(n, close, close, close, close)
+        }
+        assertEquals(PineSignalAction.CALL, PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 4).action)
+    }
+
     @Test fun plotshapeTitleCanDeclareDirection() {
         val result = PineScriptConverter.convert("""
             //@version=5

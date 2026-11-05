@@ -239,13 +239,17 @@ class PineScriptEvaluator(
             val change = current - previous
             gains += max(change, 0.0)
             losses += max(-change, 0.0)
-            if (gains.size == length) {
-                averageGain = gains.average()
-                averageLoss = losses.average()
-                val denominator = averageGain + averageLoss
-                output[i] = if (denominator == 0.0) 50.0 else 100.0 * averageGain / denominator
-                gains.clear(); losses.clear()
-            } else if (averageGain != null && averageLoss != null) {
+            if (averageGain == null || averageLoss == null) {
+                gains += max(change, 0.0)
+                losses += max(-change, 0.0)
+                if (gains.size == length) {
+                    averageGain = gains.average()
+                    averageLoss = losses.average()
+                    val denominator = averageGain + averageLoss
+                    output[i] = if (denominator == 0.0) 50.0 else 100.0 * averageGain / denominator
+                    gains.clear(); losses.clear()
+                }
+            } else {
                 averageGain = ((averageGain * (length - 1)) + max(change, 0.0)) / length
                 averageLoss = ((averageLoss * (length - 1)) + max(-change, 0.0)) / length
                 val denominator = averageGain + averageLoss
