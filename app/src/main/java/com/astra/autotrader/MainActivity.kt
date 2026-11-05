@@ -321,7 +321,18 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(signal.name, style = MaterialTheme.typography.titleSmall)
                                 Text("السطر ${signal.sourceLine}: ${signal.expression}", style = MaterialTheme.typography.bodySmall)
-                                Text("تحتاج مطابقة OHLC قبل ربطها بـ CALL/PUT.", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
+                                Text("الاتجاه المعلن: " + when (signal.direction) {
+                                    com.astra.autotrader.pine.PineSignalDirection.CALL -> "CALL"
+                                    com.astra.autotrader.pine.PineSignalDirection.PUT -> "PUT"
+                                    com.astra.autotrader.pine.PineSignalDirection.UNKNOWN -> "غير محدد — WAIT"
+                                }, style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    if (signal.compiledExpression != null) "تم تحويل الشرط إلى تعبير داخلي آمن."
+                                    else "لم يُحوّل الشرط؛ لن ينتج إشارة قابلة للتقييم.",
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Text("تطابق الإشارات غير مثبت قبل الاختبار على بيانات OHLC متطابقة.", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
