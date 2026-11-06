@@ -237,8 +237,6 @@ class PineScriptEvaluator(
             val previous = values[i - 1]
             if (current == null || previous == null || !current.isFinite() || !previous.isFinite()) continue
             val change = current - previous
-            gains += max(change, 0.0)
-            losses += max(-change, 0.0)
             if (averageGain == null || averageLoss == null) {
                 gains += max(change, 0.0)
                 losses += max(-change, 0.0)

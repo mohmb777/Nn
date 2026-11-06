@@ -193,6 +193,29 @@ class PineScriptConverterTest {
         assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 2).action)
     }
 
+    @Test fun rsiUsesOneChangePerBarAndWilderSmoothing() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("RSI Wilder")
+            strength = ta.rsi(close, 2)
+            alertcondition(strength > 70, title="CALL")
+        """.trimIndent())
+        assertTrue(result.supported)
+        val bars = listOf(
+            PineOhlcBar(1, 10.0, 10.0, 10.0, 10.0),
+            PineOhlcBar(2, 11.0, 11.0, 11.0, 11.0),
+            PineOhlcBar(3, 10.0, 10.0, 10.0, 10.0),
+            PineOhlcBar(4, 12.0, 12.0, 12.0, 12.0)
+        )
+        val evaluator = PineScriptEvaluator(bars, result.compiledVariables)
+        assertNull(evaluator.evaluate(PineExpr.Identifier("strength"), 1))
+        val seeded = evaluator.evaluate(PineExpr.Identifier("strength"), 2) as PineValue.Number
+        assertEquals(50.0, seeded.value, 1e-6)
+        val smoothed = evaluator.evaluate(PineExpr.Identifier("strength"), 3) as PineValue.Number
+        assertEquals(83.3333333333, smoothed.value, 1e-6)
+        assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 3).action)
+    }
+
     @Test fun rejectsUnknownFunctionInsideExpression() {
         val result = PineScriptConverter.convert("""
             //@version=5
