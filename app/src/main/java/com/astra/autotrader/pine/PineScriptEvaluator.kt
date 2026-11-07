@@ -22,6 +22,13 @@ data class PineSignalResult(
     val reason: String
 )
 
+data class PineExitLevels(
+    val stopPrice: Double?,
+    val limitPrice: Double?,
+    val lossTicks: Double?,
+    val profitTicks: Double?
+)
+
 sealed interface PineValue {
     data class Number(val value: Double) : PineValue
     data class Boolean(val value: kotlin.Boolean) : PineValue
@@ -39,6 +46,27 @@ class PineScriptEvaluator(
     fun evaluate(expression: PineExpr, index: Int): PineValue? {
         if (index !in bars.indices) return null
         return eval(expression, index, emptySet())
+    }
+
+    fun entryConditionAt(rule: PineScriptConverter.EntryRule, index: Int): Boolean? =
+        (evaluate(rule.compiledCondition, index) as? PineValue.Boolean)?.value
+
+    fun entryQuantityAt(rule: PineScriptConverter.EntryRule, index: Int): Double? =
+        rule.compiledQuantity?.let { (evaluate(it, index) as? PineValue.Number)?.value }
+
+    fun exitLevelsAt(rule: PineScriptConverter.ExitRule, index: Int): PineExitLevels? {
+        if (index !in bars.indices) return null
+        fun number(expression: PineExpr?): Double? =
+            expression?.let { (evaluate(it, index) as? PineValue.Number)?.value }
+        val levels = PineExitLevels(
+            stopPrice = number(rule.compiledStop),
+            limitPrice = number(rule.compiledLimit),
+            lossTicks = number(rule.compiledLossTicks),
+            profitTicks = number(rule.compiledProfitTicks)
+        )
+        return levels.takeIf {
+            it.stopPrice != null || it.limitPrice != null || it.lossTicks != null || it.profitTicks != null
+        }
     }
 
     fun signalAt(conversion: PineScriptConverter.Conversion, index: Int): PineSignalResult {
