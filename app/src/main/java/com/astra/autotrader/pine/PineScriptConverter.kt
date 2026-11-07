@@ -253,6 +253,13 @@ object PineScriptConverter {
         return null
     }
 
+    private fun duplicateNamedKeys(arguments: List<String>): Set<String> =
+        arguments.mapNotNull { splitNamedArgument(it)?.first }
+            .groupingBy { it }
+            .eachCount()
+            .filterValues { it > 1 }
+            .keys
+
     private fun splitArguments(arguments: List<String>): Pair<List<String>, Map<String, String>> {
         val positional = mutableListOf<String>()
         val named = linkedMapOf<String, String>()
@@ -286,6 +293,11 @@ object PineScriptConverter {
     ) {
         if (kind != ScriptKind.STRATEGY) {
             errors += "السطر " + line + ": strategy.entry لا يُسمح به داخل indicator؛ يجب أن يكون التصريح strategy()."
+            return
+        }
+        val duplicates = duplicateNamedKeys(rawArguments)
+        if (duplicates.isNotEmpty()) {
+            errors += "السطر " + line + ": وسائط strategy.entry مكررة: " + duplicates.sorted().joinToString(", ")
             return
         }
         val (positional, named) = splitArguments(rawArguments)
@@ -336,6 +348,11 @@ object PineScriptConverter {
             errors += "السطر " + line + ": strategy.exit لا يُسمح به داخل indicator؛ يجب أن يكون التصريح strategy()."
             return
         }
+        val duplicates = duplicateNamedKeys(rawArguments)
+        if (duplicates.isNotEmpty()) {
+            errors += "السطر " + line + ": وسائط strategy.exit مكررة: " + duplicates.sorted().joinToString(", ")
+            return
+        }
         val (positional, named) = splitArguments(rawArguments)
         if (positional.isEmpty() || positional.size > 2) {
             errors += "السطر " + line + ": strategy.exit يتطلب id ونص from_entry اختيارياً؛ استخدم الوسائط المسمّاة لمستويات الخروج."
@@ -361,6 +378,10 @@ object PineScriptConverter {
         val profitText = named["profit"]
         if (stopText == null && limitText == null && lossText == null && profitText == null) {
             errors += "السطر " + line + ": strategy.exit يحتاج واحداً على الأقل من stop أو limit أو loss أو profit؛ أوامر trailing غير مدعومة."
+            return
+        }
+        if ((stopText != null && lossText != null) || (limitText != null && profitText != null)) {
+            errors += "السطر " + line + ": الجمع بين stop وloss أو بين limit وprofit غير مدعوم بعد؛ رُفض لتجنب تغيير أولوية الخروج الأصلية."
             return
         }
         val stop = stopText?.let { parseExpression(it, line, errors) }
