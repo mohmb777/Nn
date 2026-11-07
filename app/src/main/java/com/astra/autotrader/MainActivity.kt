@@ -338,6 +338,36 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     }
                 }
             }
+            if (converted.entries.isNotEmpty()) {
+                item { Text("قواعد الدخول المستخرجة", style = MaterialTheme.typography.titleMedium) }
+                converted.entries.forEach { entry ->
+                    item {
+                        InfoCard(
+                            "دخول ${entry.id}",
+                            "${entry.direction.name} — الشرط: ${entry.conditionText}" +
+                                (entry.quantityText?.let { " — الكمية: $it" } ?: "") +
+                                " — قاعدة داخلية فقط، لا ترسل أمراً."
+                        )
+                    }
+                }
+            }
+            if (converted.exits.isNotEmpty()) {
+                item { Text("قواعد الخروج ومستويات SL/TP", style = MaterialTheme.typography.titleMedium) }
+                converted.exits.forEach { exit ->
+                    item {
+                        InfoCard(
+                            "خروج ${exit.id}",
+                            listOfNotNull(
+                                exit.fromEntry?.let { "من الدخول: $it" },
+                                exit.stopText?.let { "SL/stop: $it" },
+                                exit.limitText?.let { "TP/limit: $it" },
+                                exit.lossTicksText?.let { "loss: $it ticks" },
+                                exit.profitTicksText?.let { "profit: $it ticks" }
+                            ).joinToString(" — ") + " — لا يوجد تنفيذ."
+                        )
+                    }
+                }
+            }
         }
         item {
             InfoCard("حدود التشغيل الآمن", "لا يوجد تنفيذ للكود ولا أوامر تداول. لا تزال قراءة OHLC من شارت Pocket Option ومنفذ Demo غير موصولين؛ الناتج للمعاينة فقط. لا تستخدمه لاتخاذ صفقة قبل التحقق.")
