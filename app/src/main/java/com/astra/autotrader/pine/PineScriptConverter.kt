@@ -161,7 +161,7 @@ object PineScriptConverter {
             }
 
             if (Regex("""^strategy\.entry\s*\(""").containsMatchIn(line)) {
-                parseStrategyEntry(callArguments(line, "strategy.entry"), lineNumber, kind, entries, errors)
+                parseStrategyEntry(callArguments(line, "strategy.entry"), lineNumber, kind, version, entries, errors)
                 return@forEachIndexed
             }
 
@@ -228,6 +228,9 @@ object PineScriptConverter {
         }
 
         if (signals.isEmpty() && entries.isEmpty()) warnings += "لم يتم العثور على alertcondition أو plotshape/plotchar أو strategy.entry قابل للتحويل إلى إشارة."
+        if (entries.any { it.conditionText == "true" }) {
+            warnings += "يوجد strategy.entry بلا شرط when؛ اعتُبر شرطه true دائماً. هذا لا يحاكي حالة المركز أو pyramiding أو تكرار أوامر المنصة."
+        }
         if (entries.isNotEmpty() || exits.isNotEmpty()) {
             warnings += "تم تحويل أوامر الاستراتيجية إلى قواعد داخلية فقط؛ لا يوجد إرسال أوامر ولا ربط تلقائي بـ Paper Trading."
             if (exits.any { it.compiledLossTicks != null || it.compiledProfitTicks != null }) {
@@ -307,6 +310,7 @@ object PineScriptConverter {
         rawArguments: List<String>,
         line: Int,
         kind: ScriptKind?,
+        version: Int?,
         entries: MutableList<EntryRule>,
         errors: MutableList<String>
     ) {
@@ -322,6 +326,10 @@ object PineScriptConverter {
         val (positional, named) = splitArguments(rawArguments)
         if (positional.size !in 2..3) {
             errors += "السطر " + line + ": strategy.entry يتطلب id وdirection، مع qty اختيارية؛ الوسائط الموضعية الأخرى غير مدعومة."
+            return
+        }
+        if (version == 6 && "when" in named) {
+            errors += "السطر " + line + ": وسيط when أزيل من strategy.entry في Pine v6؛ كتل if غير مدعومة حالياً، لذلك رُفض هذا الأمر بدلاً من تغيير توقيته."
             return
         }
         val unknown = named.keys - setOf("qty", "when")
