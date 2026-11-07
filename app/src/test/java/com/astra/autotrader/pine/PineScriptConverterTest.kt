@@ -348,6 +348,35 @@ class PineScriptConverterTest {
         assertTrue(duplicate.errors.any { it.contains("وسائط strategy.entry مكررة") })
     }
 
+    @Test fun rejectsV6StrategyWhenAndWarnsForUnconditionalEntry() {
+        val v6 = PineScriptConverter.convert("""
+            //@version=6
+            strategy("V6")
+            strategy.entry("Long", strategy.long, when=close > open)
+        """.trimIndent())
+        assertFalse(v6.supported)
+        assertTrue(v6.errors.any { it.contains("أزيل من strategy.entry في Pine v6") })
+
+        val unconditional = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Unconditional")
+            strategy.entry("Long", strategy.long)
+        """.trimIndent())
+        assertTrue(unconditional.errors.joinToString("\n"), unconditional.supported)
+        assertTrue(unconditional.warnings.any { it.contains("بلا شرط when") })
+    }
+
+    @Test fun rejectsUnknownSymbolsInsteadOfReturningNullAtRuntime() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Unknown symbol")
+            tick = syminfo.mintick
+            alertcondition(close > tick, title="CALL")
+        """.trimIndent())
+        assertFalse(result.supported)
+        assertTrue(result.errors.any { it.contains("syminfo.mintick") })
+    }
+
     @Test fun rejectsUnknownFunctionInsideExpression() {
         val result = PineScriptConverter.convert("""
             //@version=5
