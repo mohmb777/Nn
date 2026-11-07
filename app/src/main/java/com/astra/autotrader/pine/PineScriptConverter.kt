@@ -56,7 +56,7 @@ object PineScriptConverter {
     )
 
     private val allowedCalls = setOf(
-        "input.int", "input.float", "input.bool", "input.string", "input.source",
+        "input", "input.int", "input.float", "input.bool", "input.string", "input.source",
         "ta.ema", "ta.sma", "ta.rsi", "ta.macd", "ta.crossover", "ta.crossunder",
         "alertcondition", "plotshape", "plotchar", "indicator", "strategy",
         "strategy.entry", "strategy.exit", "strategy.close", "strategy.order",
@@ -208,7 +208,26 @@ object PineScriptConverter {
             }
         }
 
-        if (signals.isEmpty()) warnings += "لم يتم العثور على alertcondition أو plotshape/plotchar قابل للتحويل إلى إشارة."
+        val knownIdentifiers = variables.keys + setOf("open", "high", "low", "close", "volume", "true", "false", "na")
+        val compiledExpressions = buildList {
+            addAll(variables.values)
+            signals.mapNotNullTo(this) { it.compiledExpression }
+            entries.mapTo(this) { it.compiledCondition }
+            entries.mapNotNullTo(this) { it.compiledQuantity }
+            exits.mapNotNullTo(this) { it.compiledStop }
+            exits.mapNotNullTo(this) { it.compiledLimit }
+            exits.mapNotNullTo(this) { it.compiledLossTicks }
+            exits.mapNotNullTo(this) { it.compiledProfitTicks }
+        }
+        val unknownIdentifiers = compiledExpressions
+            .flatMap { collectIdentifiers(it) }
+            .filter { it !in knownIdentifiers }
+            .distinct()
+        unknownIdentifiers.forEach { identifier ->
+            errors += "المتغير أو الرمز غير المدعوم: " + identifier + "؛ لا يمكن تقييمه من OHLC أو تعريفات السكربت الحالية."
+        }
+
+        if (signals.isEmpty() && entries.isEmpty()) warnings += "لم يتم العثور على alertcondition أو plotshape/plotchar أو strategy.entry قابل للتحويل إلى إشارة."
         if (entries.isNotEmpty() || exits.isNotEmpty()) {
             warnings += "تم تحويل أوامر الاستراتيجية إلى قواعد داخلية فقط؛ لا يوجد إرسال أوامر ولا ربط تلقائي بـ Paper Trading."
             if (exits.any { it.compiledLossTicks != null || it.compiledProfitTicks != null }) {
@@ -413,6 +432,14 @@ object PineScriptConverter {
         is PineExpr.Call -> listOf(expression.name) + expression.arguments.flatMap { collectCalls(it.value) }
         is PineExpr.Unary -> collectCalls(expression.operand)
         is PineExpr.Binary -> collectCalls(expression.left) + collectCalls(expression.right)
+        else -> emptyList()
+    }
+
+    private fun collectIdentifiers(expression: PineExpr): List<String> = when (expression) {
+        is PineExpr.Identifier -> listOf(expression.name)
+        is PineExpr.Call -> expression.arguments.flatMap { collectIdentifiers(it.value) }
+        is PineExpr.Unary -> collectIdentifiers(expression.operand)
+        is PineExpr.Binary -> collectIdentifiers(expression.left) + collectIdentifiers(expression.right)
         else -> emptyList()
     }
 
