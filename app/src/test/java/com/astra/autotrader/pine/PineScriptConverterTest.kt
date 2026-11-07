@@ -216,6 +216,85 @@ class PineScriptConverterTest {
         assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 3).action)
     }
 
+    @Test fun compilesStrategyEntryAndExitLevelsAsRulesOnly() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Bracket", overlay=true)
+            longCondition = close > open
+            strategy.entry("Long", strategy.long, qty=2, when=longCondition)
+            strategy.exit("Long Exit", from_entry="Long", stop=close - 2, limit=close + 3, loss=4, profit=8)
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        assertEquals(PineScriptConverter.ScriptKind.STRATEGY, result.kind)
+        assertEquals(1, result.entries.size)
+        assertEquals(1, result.exits.size)
+        assertEquals(PineScriptConverter.StrategyDirection.LONG, result.entries.single().direction)
+        assertEquals("Long", result.entries.single().id)
+        assertEquals("Long", result.exits.single().fromEntry)
+
+        val bars = listOf(PineOhlcBar(1, 100.0, 104.0, 98.0, 101.0))
+        val evaluator = PineScriptEvaluator(bars, result.compiledVariables)
+        assertEquals(true, evaluator.entryConditionAt(result.entries.single(), 0))
+        assertEquals(2.0, evaluator.entryQuantityAt(result.entries.single(), 0)!!, 1e-9)
+
+        val levels = evaluator.exitLevelsAt(result.exits.single(), 0)!!
+        assertEquals(99.0, levels.stopPrice!!, 1e-9)
+        assertEquals(104.0, levels.limitPrice!!, 1e-9)
+        assertEquals(4.0, levels.lossTicks!!, 1e-9)
+        assertEquals(8.0, levels.profitTicks!!, 1e-9)
+    }
+
+    @Test fun supportsShortEntryAndNamedExitFromEntry() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Short")
+            strategy.entry("Short", strategy.short, when=close < open)
+            strategy.exit("Short Exit", from_entry="Short", stop=close + 1)
+        """.trimIndent())
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        assertEquals(PineScriptConverter.StrategyDirection.SHORT, result.entries.single().direction)
+        assertEquals("Short", result.exits.single().fromEntry)
+        val bars = listOf(PineOhlcBar(1, 10.0, 11.0, 8.0, 9.0))
+        assertEquals(true, PineScriptEvaluator(bars, result.compiledVariables).entryConditionAt(result.entries.single(), 0))
+    }
+
+    @Test fun rejectsUnsupportedStrategyArgumentsAndTrailingExits() {
+        val entry = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Bad entry")
+            strategy.entry("Long", strategy.long, limit=close)
+        """.trimIndent())
+        assertFalse(entry.supported)
+        assertTrue(entry.errors.any { it.contains("وسائط strategy.entry غير المدعومة") })
+
+        val exit = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Trailing")
+            strategy.exit("Exit", from_entry="Long", trail_points=10, trail_offset=5)
+        """.trimIndent())
+        assertFalse(exit.supported)
+        assertTrue(exit.errors.any { it.contains("وسائط strategy.exit غير المدعومة") })
+    }
+
+    @Test fun rejectsStrategyOrdersInsideIndicatorsAndUntranslatedCloseOrders() {
+        val indicator = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Wrong kind")
+            strategy.entry("Long", strategy.long, when=close > open)
+        """.trimIndent())
+        assertFalse(indicator.supported)
+        assertTrue(indicator.errors.any { it.contains("داخل indicator") })
+
+        val closeOrder = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Close")
+            strategy.close("Long")
+        """.trimIndent())
+        assertFalse(closeOrder.supported)
+        assertTrue(closeOrder.errors.any { it.contains("strategy.order وstrategy.close") })
+    }
+
     @Test fun rejectsUnknownFunctionInsideExpression() {
         val result = PineScriptConverter.convert("""
             //@version=5
