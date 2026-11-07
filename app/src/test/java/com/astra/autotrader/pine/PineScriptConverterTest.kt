@@ -165,15 +165,16 @@ class PineScriptConverterTest {
         assertEquals(PineSignalDirection.CALL, result.signals.single().direction)
     }
 
-    @Test fun strategyOrdersAreNotClaimedAsConverted() {
+    @Test fun strategyEntryIsCompiledAsAConditionNotExecuted() {
         val result = PineScriptConverter.convert("""
             //@version=5
             strategy("Order")
             enterLong = close > open
             strategy.entry("Long", strategy.long, when=enterLong)
         """.trimIndent())
-        assertFalse(result.supported)
-        assertTrue(result.errors.any { it.contains("لم تُترجم") })
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        assertEquals(1, result.entries.size)
+        assertEquals("enterLong", result.entries.single().conditionText)
     }
 
     @Test fun rsiEvaluatesOnlyAfterItsWarmupWindow() {
@@ -222,7 +223,7 @@ class PineScriptConverterTest {
             strategy("Bracket", overlay=true)
             longCondition = close > open
             strategy.entry("Long", strategy.long, qty=2, when=longCondition)
-            strategy.exit("Long Exit", from_entry="Long", stop=close - 2, limit=close + 3, loss=4, profit=8)
+            strategy.exit("Long Exit", from_entry="Long", stop=close - 2, limit=close + 3)
         """.trimIndent())
 
         assertTrue(result.errors.joinToString("\n"), result.supported)
@@ -241,8 +242,8 @@ class PineScriptConverterTest {
         val levels = evaluator.exitLevelsAt(result.exits.single(), 0)!!
         assertEquals(99.0, levels.stopPrice!!, 1e-9)
         assertEquals(104.0, levels.limitPrice!!, 1e-9)
-        assertEquals(4.0, levels.lossTicks!!, 1e-9)
-        assertEquals(8.0, levels.profitTicks!!, 1e-9)
+        assertNull(levels.lossTicks)
+        assertNull(levels.profitTicks)
     }
 
     @Test fun supportsShortEntryAndNamedExitFromEntry() {
@@ -293,6 +294,39 @@ class PineScriptConverterTest {
         """.trimIndent())
         assertFalse(closeOrder.supported)
         assertTrue(closeOrder.errors.any { it.contains("strategy.order وstrategy.close") })
+    }
+
+    @Test fun evaluatesRelativeExitTicksWithoutConvertingThemToPrices() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Ticks")
+            strategy.exit("Tick Exit", from_entry="Long", loss=4, profit=8)
+        """.trimIndent())
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        val bars = listOf(PineOhlcBar(1, 100.0, 101.0, 99.0, 100.0))
+        val levels = PineScriptEvaluator(bars, result.compiledVariables).exitLevelsAt(result.exits.single(), 0)!!
+        assertEquals(4.0, levels.lossTicks!!, 1e-9)
+        assertEquals(8.0, levels.profitTicks!!, 1e-9)
+        assertNull(levels.stopPrice)
+        assertNull(levels.limitPrice)
+    }
+
+    @Test fun rejectsConflictingAbsoluteAndRelativeExitPairsAndDuplicateArguments() {
+        val mixed = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Mixed")
+            strategy.exit("Exit", stop=close - 1, loss=5)
+        """.trimIndent())
+        assertFalse(mixed.supported)
+        assertTrue(mixed.errors.any { it.contains("الجمع بين stop وloss") })
+
+        val duplicate = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Duplicate")
+            strategy.entry("Long", strategy.long, qty=1, qty=2)
+        """.trimIndent())
+        assertFalse(duplicate.supported)
+        assertTrue(duplicate.errors.any { it.contains("وسائط strategy.entry مكررة") })
     }
 
     @Test fun rejectsUnknownFunctionInsideExpression() {
