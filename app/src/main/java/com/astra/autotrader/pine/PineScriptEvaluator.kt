@@ -72,19 +72,27 @@ class PineScriptEvaluator(
     fun signalAt(conversion: PineScriptConverter.Conversion, index: Int): PineSignalResult {
         if (index !in bars.indices) return PineSignalResult(PineSignalAction.WAIT, emptyList(), "فهرس الشمعة خارج البيانات.")
         val evaluator = PineScriptEvaluator(bars, conversion.compiledVariables)
-        val active = conversion.signals.filter { rule ->
+        val activeSignals = conversion.signals.filter { rule ->
             val expression = rule.compiledExpression ?: return@filter false
             (evaluator.evaluate(expression, index) as? PineValue.Boolean)?.value == true
         }
-        if (active.isEmpty()) return PineSignalResult(PineSignalAction.WAIT, emptyList(), "لا يوجد شرط إشارة نشط على هذه الشمعة.")
-        val directions = active.map { it.direction }.toSet()
+        val activeEntries = conversion.entries.filter { entry ->
+            evaluator.entryConditionAt(entry, index) == true
+        }
+        val activeNames = activeSignals.map { it.name } + activeEntries.map { it.id }
+        if (activeNames.isEmpty()) return PineSignalResult(PineSignalAction.WAIT, emptyList(), "لا يوجد شرط إشارة أو دخول نشط على هذه الشمعة.")
+        val directions = activeSignals.map { it.direction } + activeEntries.map {
+            if (it.direction == PineScriptConverter.StrategyDirection.LONG) PineSignalDirection.CALL
+            else PineSignalDirection.PUT
+        }
+        val uniqueDirections = directions.toSet()
         return when {
-            directions == setOf(PineSignalDirection.CALL) ->
-                PineSignalResult(PineSignalAction.CALL, active.map { it.name }, "تحقق شرط CALL معلن صراحةً في السكربت.")
-            directions == setOf(PineSignalDirection.PUT) ->
-                PineSignalResult(PineSignalAction.PUT, active.map { it.name }, "تحقق شرط PUT معلن صراحةً في السكربت.")
+            uniqueDirections == setOf(PineSignalDirection.CALL) ->
+                PineSignalResult(PineSignalAction.CALL, activeNames, "تحقق شرط CALL أو دخول LONG معلن صراحةً في السكربت.")
+            uniqueDirections == setOf(PineSignalDirection.PUT) ->
+                PineSignalResult(PineSignalAction.PUT, activeNames, "تحقق شرط PUT أو دخول SHORT معلن صراحةً في السكربت.")
             else ->
-                PineSignalResult(PineSignalAction.WAIT, active.map { it.name }, "الشروط النشطة متعارضة أو لا تحمل اتجاهاً صريحاً؛ تم الامتناع عن التخمين.")
+                PineSignalResult(PineSignalAction.WAIT, activeNames, "الشروط النشطة متعارضة أو لا تحمل اتجاهاً صريحاً؛ تم الامتناع عن التخمين.")
         }
     }
 
@@ -132,7 +140,7 @@ class PineScriptEvaluator(
             arg(position, named)?.let { eval(it, index, visiting).numberOrNull() }
 
         return when (call.name) {
-            "input.int", "input.float", "input.bool", "input.string", "input.source" ->
+            "input", "input.int", "input.float", "input.bool", "input.string", "input.source" ->
                 arg(0, "defval")?.let { eval(it, index, visiting) }
             "math.abs" -> numberArg(0)?.let { PineValue.Number(abs(it)) }
             "math.min" -> {
