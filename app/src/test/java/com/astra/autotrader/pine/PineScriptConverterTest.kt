@@ -73,6 +73,22 @@ class PineScriptConverterTest {
         assertEquals(PineSignalAction.CALL, signal.action)
     }
 
+    @Test fun genericInputDefaultIsEvaluated() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Generic input")
+            period = input(2, "Period")
+            average = ta.sma(close, period)
+            alertcondition(average > open, title="CALL")
+        """.trimIndent())
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        val bars = listOf(
+            PineOhlcBar(1, 9.0, 10.0, 8.0, 10.0),
+            PineOhlcBar(2, 10.0, 12.0, 9.0, 12.0)
+        )
+        assertEquals(PineSignalAction.CALL, PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 1).action)
+    }
+
     @Test fun parserHonorsArithmeticAndBooleanPrecedence() {
         val expression = PineExpressionParser.parse("close > open and (close - open) / open > 0.01")
         val bars = listOf(PineOhlcBar(1, 100.0, 103.0, 99.0, 102.0))
@@ -237,6 +253,7 @@ class PineScriptConverterTest {
         val bars = listOf(PineOhlcBar(1, 100.0, 104.0, 98.0, 101.0))
         val evaluator = PineScriptEvaluator(bars, result.compiledVariables)
         assertEquals(true, evaluator.entryConditionAt(result.entries.single(), 0))
+        assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 0).action)
         assertEquals(2.0, evaluator.entryQuantityAt(result.entries.single(), 0)!!, 1e-9)
 
         val levels = evaluator.exitLevelsAt(result.exits.single(), 0)!!
@@ -257,7 +274,9 @@ class PineScriptConverterTest {
         assertEquals(PineScriptConverter.StrategyDirection.SHORT, result.entries.single().direction)
         assertEquals("Short", result.exits.single().fromEntry)
         val bars = listOf(PineOhlcBar(1, 10.0, 11.0, 8.0, 9.0))
-        assertEquals(true, PineScriptEvaluator(bars, result.compiledVariables).entryConditionAt(result.entries.single(), 0))
+        val evaluator = PineScriptEvaluator(bars, result.compiledVariables)
+        assertEquals(true, evaluator.entryConditionAt(result.entries.single(), 0))
+        assertEquals(PineSignalAction.PUT, evaluator.signalAt(result, 0).action)
     }
 
     @Test fun rejectsUnsupportedStrategyArgumentsAndTrailingExits() {
