@@ -267,7 +267,8 @@ object PineScriptConverter {
 
         fun clean(index: Int): String = lines[index].substringBefore("//").trim()
         fun indentation(index: Int): Int =
-            lines[index].takeWhile { it == ' ' || it == '\t' }.sumOf { if (it == '\t') 4 else 1 }
+            lines[index].takeWhile { it == ' ' || it == '\t' }
+                .fold(0) { total, char -> total + if (char == '\t') 4 else 1 }
 
         fun nextMeaningful(start: Int): Int {
             var index = start
