@@ -405,4 +405,90 @@ class PineScriptConverterTest {
         assertFalse(lookahead.supported)
         assertTrue(lookahead.errors.any { it.contains("lookahead") })
     }
+
+    @Test fun supportsSingleStatementIfElseEntriesInPineV6() {
+        val result = PineScriptConverter.convert("""
+            //@version=6
+            strategy("If Else")
+            isBull = close > open
+            if isBull
+                strategy.entry("Long", strategy.long)
+            else
+                strategy.entry("Short", strategy.short)
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        assertEquals(2, result.entries.size)
+        assertEquals("isBull", result.entries[0].conditionText)
+        assertEquals("not (isBull)", result.entries[1].conditionText)
+
+        val bars = listOf(
+            PineOhlcBar(1, 10.0, 12.0, 9.0, 11.0),
+            PineOhlcBar(2, 11.0, 12.0, 9.0, 10.0)
+        )
+        val evaluator = PineScriptEvaluator(bars, result.compiledVariables)
+        assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 0).action)
+        assertEquals(PineSignalAction.PUT, evaluator.signalAt(result, 1).action)
+    }
+
+    @Test fun supportsGuardedPlotshapeWithoutElse() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Guarded shape")
+            bullish = close > open
+            if bullish
+                plotshape(true, title="CALL")
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        assertEquals(1, result.signals.size)
+        assertTrue(result.signals.single().expression.contains("bullish"))
+        val bars = listOf(PineOhlcBar(1, 10.0, 12.0, 9.0, 11.0))
+        assertEquals(PineSignalAction.CALL, PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 0).action)
+    }
+
+    @Test fun rejectsMultipleStatementsAndNestedIfBlocks() {
+        val multiple = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Multiple")
+            if close > open
+                strategy.entry("Long", strategy.long)
+                strategy.exit("Exit", stop=close - 1)
+        """.trimIndent())
+        assertFalse(multiple.supported)
+        assertTrue(multiple.errors.any { it.contains("عبارة واحدة فقط") })
+
+        val nested = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Nested")
+            if close > open
+                if close > low
+                    strategy.entry("Long", strategy.long)
+        """.trimIndent())
+        assertFalse(nested.supported)
+        assertTrue(nested.errors.any { it.contains("عبارة واحدة فقط") })
+    }
+
+    @Test fun rejectsElseIfAndConditionalExitRatherThanDroppingTheirGuards() {
+        val elseIf = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Else if")
+            if close > open
+                strategy.entry("Long", strategy.long)
+            else if close < open
+                strategy.entry("Short", strategy.short)
+        """.trimIndent())
+        assertFalse(elseIf.supported)
+        assertTrue(elseIf.errors.any { it.contains("else if غير مدعوم") })
+
+        val conditionalExit = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Conditional exit")
+            if close < open
+                strategy.exit("Exit", from_entry="Long", stop=close + 1)
+        """.trimIndent())
+        assertFalse(conditionalExit.supported)
+        assertTrue(conditionalExit.errors.any { it.contains("داخل if/else") })
+    }
+
 }
