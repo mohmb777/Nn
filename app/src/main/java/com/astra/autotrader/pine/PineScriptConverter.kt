@@ -67,6 +67,12 @@ object PineScriptConverter {
     private val declarationPattern = Regex("""^\s*(?:var\s+)?(?:(?:float|int|bool|string)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$""")
     private val macdTuplePattern = Regex("""^\s*\[\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*]\s*=\s*ta\.macd\s*\((.*)\)\s*$""")
 
+
+    private data class SourceStatement(
+        val lineNumber: Int,
+        val text: String,
+        val guardText: String? = null
+    )
     fun convert(source: String): Conversion {
         val errors = mutableListOf<String>()
         val warnings = mutableListOf<String>()
@@ -126,15 +132,13 @@ object PineScriptConverter {
             warnings += "فهرسة السلاسل [ ] غير مدعومة؛ لا يمكن ضمان تطابق توقيت الإشارة."
         }
 
-        lines.forEachIndexed { index, raw ->
-            val lineNumber = index + 1
-            val line = raw.substringBefore("//").trim()
-            if (line.isBlank() || line.startsWith("@version")) return@forEachIndexed
-            if (Regex("""^(if|else)\b""").containsMatchIn(line)) {
-                errors += "السطر " + lineNumber + ": كتل if/else غير مدعومة بعد؛ حوّل الشرط إلى alertcondition أو plotshape صريح."
-                return@forEachIndexed
-            }
-            if (line.startsWith("indicator(") || line.startsWith("strategy(")) return@forEachIndexed
+        val statements = flattenSimpleIfBlocks(lines, errors)
+        statements.forEach { statement ->
+            val lineNumber = statement.lineNumber
+            val line = statement.text
+            val guardText = statement.guardText
+            if (line.isBlank() || line.startsWith("@version")) return@forEach
+            if (line.startsWith("indicator(") || line.startsWith("strategy(")) return@forEach
 
             val calls = callPattern.findAll(line).map { it.groupValues[1] }.toList()
             calls.forEach { call ->
@@ -157,22 +161,28 @@ object PineScriptConverter {
                         }
                     }
                 }
-                return@forEachIndexed
+                return@forEach
             }
 
             if (Regex("""^strategy\.entry\s*\(""").containsMatchIn(line)) {
-                parseStrategyEntry(callArguments(line, "strategy.entry"), lineNumber, kind, version, entries, errors)
-                return@forEachIndexed
+                parseStrategyEntry(callArguments(line, "strategy.entry"), lineNumber, kind, version, guardText, entries, errors)
+                return@forEach
             }
 
             if (Regex("""^strategy\.exit\s*\(""").containsMatchIn(line)) {
-                parseStrategyExit(callArguments(line, "strategy.exit"), lineNumber, kind, exits, errors)
-                return@forEachIndexed
+                if (guardText != null) {
+                    errors += "السطر " + lineNumber + ": strategy.exit داخل if/else غير مدعوم بعد؛ لم يتم إسقاط شرط الخروج أو تجاهله."
+                } else {
+                    parseStrategyExit(callArguments(line, "strategy.exit"), lineNumber, kind, exits, errors)
+                }
+                return@forEach
             }
 
             if (Regex("""^alertcondition\s*\(""").containsMatchIn(line)) {
                 val args = callArguments(line, "alertcondition")
-                val expressionText = args.firstOrNull()
+                val baseExpression = args.firstOrNull()
+                val expressionText = if (guardText == null || baseExpression == null) baseExpression
+                    else "(" + guardText + ") and (" + baseExpression + ")"
                 val name = Regex("""\btitle\s*=\s*"([^"]+)"""").find(line)?.groupValues?.get(1) ?: "تنبيه السطر " + lineNumber
                 if (expressionText.isNullOrBlank()) {
                     errors += "السطر " + lineNumber + ": alertcondition يحتاج شرطاً في الوسيط الأول."
@@ -180,12 +190,14 @@ object PineScriptConverter {
                     val compiled = parseExpression(expressionText, lineNumber, errors)
                     signals += SignalRule(name, expressionText, lineNumber, directionFor(name), compiled)
                 }
-                return@forEachIndexed
+                return@forEach
             }
 
             if (Regex("""^(plotshape|plotchar)\s*\(""").containsMatchIn(line)) {
                 val functionName = if (Regex("""^plotshape\s*\(""").containsMatchIn(line)) "plotshape" else "plotchar"
-                val expressionText = callArguments(line, functionName).firstOrNull()
+                val baseExpression = callArguments(line, functionName).firstOrNull()
+                val expressionText = if (guardText == null || baseExpression == null) baseExpression
+                    else "(" + guardText + ") and (" + baseExpression + ")"
                 if (expressionText.isNullOrBlank()) {
                     errors += "السطر " + lineNumber + ": " + functionName + " يحتاج شرطاً في الوسيط الأول."
                 } else {
@@ -193,7 +205,7 @@ object PineScriptConverter {
                     val shapeTitle = Regex("""\btitle\s*=\s*"([^"]+)"""").find(line)?.groupValues?.get(1) ?: functionName + " السطر " + lineNumber
                     signals += SignalRule(shapeTitle, expressionText, lineNumber, directionFor(shapeTitle), compiled)
                 }
-                return@forEachIndexed
+                return@forEach
             }
 
             val assignment = declarationPattern.matchEntire(line)
@@ -241,6 +253,117 @@ object PineScriptConverter {
             warnings += "بعض الشروط لا تحمل اسماً صريحاً CALL أو PUT؛ ستنتج WAIT بدلاً من تخمين الاتجاه."
         }
         return result(kind, title, version)
+    }
+
+    /**
+     * يحوّل كتل if/else ذات عبارة واحدة إلى عبارات محروسة.
+     * لا يسمح بالتداخل أو تعدد العبارات؛ لا تُنفذ الكتل بل تُترجم شروطها إلى AST لاحقاً.
+     */
+    private fun flattenSimpleIfBlocks(
+        lines: List<String>,
+        errors: MutableList<String>
+    ): List<SourceStatement> {
+        val output = mutableListOf<SourceStatement>()
+
+        fun clean(index: Int): String = lines[index].substringBefore("//").trim()
+        fun indentation(index: Int): Int =
+            lines[index].takeWhile { it == ' ' || it == '\t' }.sumOf { if (it == '\t') 4 else 1 }
+
+        fun nextMeaningful(start: Int): Int {
+            var index = start
+            while (index < lines.size && clean(index).isBlank()) index++
+            return index
+        }
+
+        fun readBranch(start: Int, parentIndent: Int, ownerLine: Int, label: String): Pair<SourceStatement?, Int> {
+            val first = nextMeaningful(start)
+            if (first >= lines.size || indentation(first) <= parentIndent) {
+                errors += "السطر " + ownerLine + ": كتلة " + label + " فارغة؛ يجب أن تحتوي عبارة واحدة مزاحة للداخل."
+                return null to first
+            }
+
+            val bodyLines = mutableListOf<Int>()
+            var cursor = first
+            while (cursor < lines.size) {
+                if (clean(cursor).isBlank()) {
+                    cursor++
+                    continue
+                }
+                if (indentation(cursor) <= parentIndent) break
+                bodyLines += cursor
+                cursor++
+            }
+            if (bodyLines.size != 1) {
+                errors += "السطر " + ownerLine + ": يدعم المحوّل عبارة واحدة فقط داخل " + label + "؛ الكتل المتعددة أو المتداخلة مرفوضة."
+                return null to cursor
+            }
+
+            val bodyIndex = bodyLines.single()
+            val body = clean(bodyIndex)
+            if (!Regex("""^(strategy\.entry|alertcondition|plotshape|plotchar)\s*\(""").containsMatchIn(body)) {
+                errors += "السطر " + (bodyIndex + 1) + ": داخل if/else يُسمح حالياً بـ strategy.entry أو alertcondition أو plotshape أو plotchar فقط؛ لم تُحوّل العبارة."
+                return null to cursor
+            }
+            return SourceStatement(bodyIndex + 1, body) to cursor
+        }
+
+        var index = 0
+        while (index < lines.size) {
+            val current = clean(index)
+            if (current.isBlank() || current.startsWith("@version")) {
+                index++
+                continue
+            }
+            if (current == "else" || current.startsWith("else ")) {
+                errors += "السطر " + (index + 1) + ": else بلا if مطابق أو else if غير مدعوم؛ استخدم كتلة if/else بسيطة."
+                if (current.startsWith("else if")) {
+                    val parentIndent = indentation(index)
+                    index++
+                    while (index < lines.size && (clean(index).isBlank() || indentation(index) > parentIndent)) index++
+                } else {
+                    index++
+                }
+                continue
+            }
+
+            val ifMatch = Regex("""^if\s+(.+)$""").matchEntire(current)
+            if (ifMatch == null) {
+                output += SourceStatement(index + 1, current)
+                index++
+                continue
+            }
+
+            val condition = ifMatch.groupValues[1].trim()
+            if (condition.isBlank()) {
+                errors += "السطر " + (index + 1) + ": شرط if فارغ."
+                index++
+                continue
+            }
+            val ownerLine = index + 1
+            val parentIndent = indentation(index)
+            val (trueBranch, afterTrue) = readBranch(index + 1, parentIndent, ownerLine, "if")
+            trueBranch?.let { output += it.copy(guardText = condition) }
+
+            val possibleElse = nextMeaningful(afterTrue)
+            if (possibleElse < lines.size &&
+                indentation(possibleElse) == parentIndent &&
+                clean(possibleElse).startsWith("else")) {
+                val elseText = clean(possibleElse)
+                if (elseText != "else") {
+                    errors += "السطر " + (possibleElse + 1) + ": else if غير مدعوم؛ استخدم if/else منفصلة أو شرطاً مركباً صريحاً."
+                    var cursor = possibleElse + 1
+                    while (cursor < lines.size && (clean(cursor).isBlank() || indentation(cursor) > parentIndent)) cursor++
+                    index = cursor
+                } else {
+                    val (falseBranch, afterFalse) = readBranch(possibleElse + 1, parentIndent, possibleElse + 1, "else")
+                    falseBranch?.let { output += it.copy(guardText = "not (" + condition + ")") }
+                    index = afterFalse
+                }
+            } else {
+                index = afterTrue
+            }
+        }
+        return output
     }
 
     private fun splitNamedArgument(raw: String): Pair<String, String>? {
@@ -311,6 +434,7 @@ object PineScriptConverter {
         line: Int,
         kind: ScriptKind?,
         version: Int?,
+        guardText: String?,
         entries: MutableList<EntryRule>,
         errors: MutableList<String>
     ) {
@@ -329,7 +453,7 @@ object PineScriptConverter {
             return
         }
         if (version == 6 && "when" in named) {
-            errors += "السطر " + line + ": وسيط when أزيل من strategy.entry في Pine v6؛ كتل if غير مدعومة حالياً، لذلك رُفض هذا الأمر بدلاً من تغيير توقيته."
+            errors += "السطر " + line + ": وسيط when أزيل من strategy.entry في Pine v6؛ استخدم كتلة if بسيطة مدعومة لتحديد شرط الدخول."
             return
         }
         val unknown = named.keys - setOf("qty", "when")
@@ -356,7 +480,11 @@ object PineScriptConverter {
                 return
             }
         }
-        val conditionText = named["when"] ?: "true"
+        val conditionText = when {
+            guardText == null -> named["when"] ?: "true"
+            named["when"] == null -> guardText
+            else -> "(" + guardText + ") and (" + named["when"] + ")"
+        }
         val compiledCondition = parseExpression(conditionText, line, errors) ?: return
         val quantityText = named["qty"] ?: positional.getOrNull(2)
         val compiledQuantity = quantityText?.let { parseExpression(it, line, errors) }
