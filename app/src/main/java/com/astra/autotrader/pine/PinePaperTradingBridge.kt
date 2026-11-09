@@ -52,9 +52,8 @@ class PinePaperTradingBridge(
         if (!conversion.supported || conversion.kind == null) {
             return result(PinePaperStatus.UNSUPPORTED_SCRIPT, "يجب أن يجتاز السكربت التحويل الكامل قبل المحاكاة.")
         }
-        if (conversion.signals.any { it.compiledExpression == null } ||
-            conversion.entries.any { it.compiledCondition == null }) {
-            return result(PinePaperStatus.UNSUPPORTED_SCRIPT, "يوجد شرط لم يتحول إلى تعبير داخلي قابل للتقييم.")
+        if (conversion.signals.any { it.compiledExpression == null }) {
+            return result(PinePaperStatus.UNSUPPORTED_SCRIPT, "يوجد شرط إشارة لم يتحول إلى تعبير داخلي قابل للتقييم.")
         }
         if (conversion.exits.isNotEmpty()) {
             return result(
