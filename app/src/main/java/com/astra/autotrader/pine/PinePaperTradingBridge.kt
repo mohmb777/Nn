@@ -12,6 +12,7 @@ enum class PinePaperStatus {
     BAR_NOT_CLOSED,
     INVALID_INPUT,
     UNSUPPORTED_SCRIPT,
+    UNSUPPORTED_ENTRY_SEMANTICS,
     UNSUPPORTED_EXIT_RULES,
     UNSUPPORTED_QUANTITY,
     OPEN_TRADE_EXISTS,
@@ -30,8 +31,8 @@ data class PinePaperResult(
  * بوابة محلية بين نتائج Pine ومحاكي PaperTradingEngine.
  *
  * لا تجلب OHLC ولا تتصل بـ Pocket Option. يجب على المستدعي تمرير سلسلة
- * OHLC موثوقة وإثبات أن الشمعة الأخيرة مغلقة. قواعد الخروج والكمية لا تُحاكى
- * هنا، لذلك تُرفض بدلاً من تغيير معناها أو تجاهلها.
+ * OHLC موثوقة وإثبات أن الشمعة الأخيرة مغلقة. قواعد الخروج والكمية وتعدد
+ * أوامر الدخول لا تُحاكى هنا، لذلك تُرفض بدلاً من تغيير معناها أو تجاهلها.
  */
 class PinePaperTradingBridge(
     private val paperTrading: PaperTradingEngine
@@ -54,6 +55,12 @@ class PinePaperTradingBridge(
         }
         if (conversion.signals.any { it.compiledExpression == null }) {
             return result(PinePaperStatus.UNSUPPORTED_SCRIPT, "يوجد شرط إشارة لم يتحول إلى تعبير داخلي قابل للتقييم.")
+        }
+        if (conversion.entries.size > 1 || conversion.entries.any { it.conditionText.trim() == "true" }) {
+            return result(
+                PinePaperStatus.UNSUPPORTED_ENTRY_SEMANTICS,
+                "تعدد strategy.entry أو الدخول غير المشروط يحتاج محاكاة حالة المركز وpyramiding؛ رُفض لتجنب فتح صفقات لا تمثل منطق Pine."
+            )
         }
         if (conversion.exits.isNotEmpty()) {
             return result(
