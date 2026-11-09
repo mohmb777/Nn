@@ -70,7 +70,7 @@ class PinePaperTradingBridgeTest {
         assertTrue(paper.snapshot().trades.isEmpty())
     }
 
-    @Test fun openTradeAndRiskHaltAreRespected() {
+    @Test fun onlyOneOpenPaperTradeIsAllowed() {
         val paper = engine()
         val bridge = PinePaperTradingBridge(paper)
         val first = bars(PineOhlcBar(4_000, 1.10, 1.12, 1.09, 1.11))
@@ -84,17 +84,31 @@ class PinePaperTradingBridgeTest {
         assertEquals(1, paper.snapshot().trades.size)
     }
 
+    @Test fun haltedPaperAccountRejectsNewSignal() {
+        val paper = engine()
+        repeat(2) { index ->
+            val trade = paper.open(TradeDirection.CALL, 1.10, index.toLong() + 1L, "manual")!!
+            assertTrue(paper.settle(trade.id, won = false, payoutRate = 0.8))
+        }
+        assertTrue(paper.snapshot().halted)
+
+        val bridge = PinePaperTradingBridge(paper)
+        val data = bars(PineOhlcBar(6_000, 1.10, 1.12, 1.09, 1.11))
+        assertEquals(PinePaperStatus.RISK_HALTED, bridge.processClosedBar("halted", callScript(), data, 0, true).status)
+        assertTrue(paper.snapshot().trades.isEmpty())
+    }
+
     @Test fun invalidAndOutOfOrderOhlcAreRejected() {
         val bridge = PinePaperTradingBridge(engine())
-        val invalid = bars(PineOhlcBar(6_000, 1.10, 1.05, 1.09, 1.11))
+        val invalid = bars(PineOhlcBar(7_000, 1.10, 1.05, 1.09, 1.11))
         assertEquals(
             PinePaperStatus.INVALID_INPUT,
             bridge.processClosedBar("bad", callScript(), invalid, 0, true).status
         )
 
         val unordered = bars(
-            PineOhlcBar(7_000, 1.10, 1.12, 1.09, 1.11),
-            PineOhlcBar(6_500, 1.10, 1.12, 1.09, 1.11)
+            PineOhlcBar(8_000, 1.10, 1.12, 1.09, 1.11),
+            PineOhlcBar(7_500, 1.10, 1.12, 1.09, 1.11)
         )
         assertEquals(
             PinePaperStatus.INVALID_INPUT,
@@ -103,7 +117,8 @@ class PinePaperTradingBridgeTest {
     }
 
     @Test fun unsupportedExitAndQuantityRulesAreNotSilentlyIgnored() {
-        val bridge = PinePaperTradingBridge(engine())
+        val paper = engine()
+        val bridge = PinePaperTradingBridge(paper)
         val exitScript = PineScriptConverter.convert(
             """
                 //@version=5
@@ -120,7 +135,7 @@ class PinePaperTradingBridgeTest {
                 strategy.entry("Long", strategy.long, qty=2, when=close > open)
             """.trimIndent()
         )
-        val data = bars(PineOhlcBar(8_000, 1.10, 1.12, 1.09, 1.11))
+        val data = bars(PineOhlcBar(9_000, 1.10, 1.12, 1.09, 1.11))
 
         assertEquals(
             PinePaperStatus.UNSUPPORTED_EXIT_RULES,
@@ -130,7 +145,7 @@ class PinePaperTradingBridgeTest {
             PinePaperStatus.UNSUPPORTED_QUANTITY,
             bridge.processClosedBar("quantity", quantityScript, data, 0, true).status
         )
-        assertTrue(bridgeStatusNoTrade(bridge, "noop", callScript(), data))
+        assertTrue(paper.snapshot().trades.isEmpty())
     }
 
     @Test fun olderCandleCannotBeProcessedAfterNewerCandle() {
@@ -144,15 +159,5 @@ class PinePaperTradingBridgeTest {
 
         val old = bars(PineOhlcBar(10_000, 1.10, 1.12, 1.09, 1.11))
         assertEquals(PinePaperStatus.STALE_BAR, bridge.processClosedBar("ordered", callScript(), old, 0, true).status)
-    }
-
-    private fun bridgeStatusNoTrade(
-        bridge: PinePaperTradingBridge,
-        strategyId: String,
-        conversion: PineScriptConverter.Conversion,
-        data: List<PineOhlcBar>
-    ): Boolean {
-        val result = bridge.processClosedBar(strategyId, conversion, data, 0, true)
-        return result.status == PinePaperStatus.OPENED
     }
 }
