@@ -37,6 +37,23 @@ class PinePaperTradingBridgeTest {
         assertEquals(1, paper.snapshot().trades.size)
     }
 
+    @Test fun putSignalMapsToPutPaperTrade() {
+        val paper = engine()
+        val bridge = PinePaperTradingBridge(paper)
+        val script = PineScriptConverter.convert(
+            """
+                //@version=5
+                indicator("PUT")
+                alertcondition(close < open, title="PUT")
+            """.trimIndent()
+        )
+        val data = bars(PineOhlcBar(1_500, 1.11, 1.12, 1.08, 1.09))
+
+        val result = bridge.processClosedBar("put-script", script, data, 0, true)
+        assertEquals(PinePaperStatus.OPENED, result.status)
+        assertEquals(TradeDirection.PUT, result.trade?.direction)
+    }
+
     @Test fun sameClosedCandleCannotOpenTwice() {
         val paper = engine()
         val bridge = PinePaperTradingBridge(paper)
