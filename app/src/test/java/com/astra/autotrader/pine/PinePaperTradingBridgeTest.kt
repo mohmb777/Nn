@@ -37,6 +37,24 @@ class PinePaperTradingBridgeTest {
         assertEquals(1, paper.snapshot().trades.size)
     }
 
+    @Test fun conditionalStrategyEntryCanOpenLocalPaperTrade() {
+        val paper = engine()
+        val bridge = PinePaperTradingBridge(paper)
+        val script = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("One entry")
+                strategy.entry("Long", strategy.long, when=close > open)
+            """.trimIndent()
+        )
+        val data = bars(PineOhlcBar(1_250, 1.10, 1.12, 1.09, 1.11))
+
+        assertTrue(script.errors.joinToString("\n"), script.supported)
+        val result = bridge.processClosedBar("single-entry", script, data, 0, true)
+        assertEquals(PinePaperStatus.OPENED, result.status)
+        assertEquals(TradeDirection.CALL, result.trade?.direction)
+    }
+
     @Test fun putSignalMapsToPutPaperTrade() {
         val paper = engine()
         val bridge = PinePaperTradingBridge(paper)
@@ -163,6 +181,37 @@ class PinePaperTradingBridgeTest {
             bridge.processClosedBar("quantity", quantityScript, data, 0, true).status
         )
         assertTrue(paper.snapshot().trades.isEmpty())
+    }
+
+    @Test fun unconditionalAndMultipleEntryOrdersAreRejected() {
+        val bridge = PinePaperTradingBridge(engine())
+        val unconditional = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Always on")
+                strategy.entry("Long", strategy.long)
+            """.trimIndent()
+        )
+        val multiple = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Two entries")
+                longCondition = close > open
+                shortCondition = close < open
+                strategy.entry("Long", strategy.long, when=longCondition)
+                strategy.entry("Short", strategy.short, when=shortCondition)
+            """.trimIndent()
+        )
+        val data = bars(PineOhlcBar(9_500, 1.10, 1.12, 1.09, 1.11))
+
+        assertEquals(
+            PinePaperStatus.UNSUPPORTED_ENTRY_SEMANTICS,
+            bridge.processClosedBar("always", unconditional, data, 0, true).status
+        )
+        assertEquals(
+            PinePaperStatus.UNSUPPORTED_ENTRY_SEMANTICS,
+            bridge.processClosedBar("multiple", multiple, data, 0, true).status
+        )
     }
 
     @Test fun olderCandleCannotBeProcessedAfterNewerCandle() {
