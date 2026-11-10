@@ -70,7 +70,7 @@ object PineReplayEngine {
         }
         if (dataset.bars.isEmpty()) return failure("لا توجد شموع OHLC للاختبار.")
         if (dataset.bars.size > MAX_REPLAY_BARS) {
-            return failure("عدد الشموع يتجاوز حد إعادة الاختبار الحالي (@@{MAX_REPLAY_BARS}) لحماية أداء الهاتف.")
+            return failure("عدد الشموع يتجاوز حد إعادة الاختبار الحالي (${MAX_REPLAY_BARS}) لحماية أداء الهاتف.")
         }
         if (dataset.expectedSignals != null && dataset.expectedSignals.size != dataset.bars.size) {
             return failure("عدد إشارات TradingView المرجعية لا يطابق عدد شموع OHLC.")
@@ -85,9 +85,9 @@ object PineReplayEngine {
                 bar.high >= maxOf(bar.open, bar.close) &&
                 bar.low <= minOf(bar.open, bar.close) &&
                 bar.low > 0.0 && bar.low <= bar.high && bar.volume >= 0.0
-            if (!valid) return failure("بيانات OHLC غير صالحة عند الشمعة @@{index + 1}.")
+            if (!valid) return failure("بيانات OHLC غير صالحة عند الشمعة ${index + 1}.")
             if (previousTime != null && bar.time <= previousTime!!) {
-                return failure("توقيت الشموع غير متزايد عند الشمعة @@{index + 1}.")
+                return failure("توقيت الشموع غير متزايد عند الشمعة ${index + 1}.")
             }
             previousTime = bar.time
         }
