@@ -17,7 +17,7 @@ class PineReplayEngineTest {
         bars = listOf(
             PineOhlcBar(1_794_219_000_000L, 1.10, 1.13, 1.09, 1.12),
             PineOhlcBar(1_794_219_060_000L, 1.12, 1.14, 1.08, 1.09),
-            PineOhlcBar(1_794_219_120_000L, 1.09, 1.11, 1.08, 1.10)
+            PineOhlcBar(1_794_219_120_000L, 1.09, 1.11, 1.08, 1.09)
         ),
         expectedSignals = expected
     )
@@ -61,6 +61,25 @@ class PineReplayEngineTest {
         assertTrue(report.success)
         assertEquals(0, report.comparedBars)
         assertNull(report.matchRatePercent)
+    }
+
+    @Test fun skipsNaWarmupRowsWhenCalculatingParity() {
+        val parsed = PineOhlcCsvParser.parse(
+            """
+                time,open,high,low,close,expected_signal
+                1794219000000,1.10,1.13,1.09,1.12,CALL
+                1794219060000,1.12,1.14,1.08,1.09,na
+                1794219120000,1.09,1.11,1.08,1.09,WAIT
+            """.trimIndent()
+        )
+        assertTrue(parsed.errorArabic ?: "parse failed", parsed.success)
+
+        val report = PineReplayEngine.run(conversion(), parsed.dataset!!)
+
+        assertTrue(report.success)
+        assertEquals(2, report.comparedBars)
+        assertEquals(2, report.matchedBars)
+        assertEquals(0, report.mismatchCount)
     }
 
     @Test fun rejectsUnsupportedConversionAndTooManyBars() {
