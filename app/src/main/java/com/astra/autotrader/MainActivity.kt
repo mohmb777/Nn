@@ -454,7 +454,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                 } else if (report.success) {
                     item {
                         Text(
-                            "لا يوجد عمود expected_signal؛ لا يمكن حساب نسبة تطابق.",
+                            "لا توجد صفوف expected_signal قابلة للمقارنة؛ قد تكون قيمها NA أو فارغة.",
                             color = MaterialTheme.colorScheme.tertiary,
                             style = MaterialTheme.typography.bodySmall
                         )
