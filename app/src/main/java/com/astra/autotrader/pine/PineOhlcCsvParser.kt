@@ -83,7 +83,7 @@ object PineOhlcCsvParser {
         ).maxOrNull() ?: return failure("تعذر تحديد أعمدة OHLC.")
 
         val bars = mutableListOf<PineOhlcBar>()
-        val expectedSignals = if (expectedIndex != null) mutableListOf<PineSignalAction>() else null
+        val expectedSignals = if (expectedIndex != null) mutableListOf<PineSignalAction?>() else null
         var previousTime: Long? = null
 
         for (lineIndex in headerLineIndex + 1 until lines.size) {
@@ -146,11 +146,16 @@ object PineOhlcCsvParser {
             }
 
             if (expectedIndex != null) {
-                val expected = parseExpectedSignal(fields[expectedIndex])
-                    ?: return failure(
-                        "قيمة expected_signal غير معروفة في السطر ${lineIndex + 1}. القيم المقبولة: CALL/1 أو PUT/-1 أو WAIT/0."
-                    )
-                expectedSignals?.add(expected)
+                val rawExpected = fields[expectedIndex].trim()
+                if (rawExpected.isBlank() || rawExpected.equals("na", ignoreCase = true)) {
+                    expectedSignals?.add(null)
+                } else {
+                    val expected = parseExpectedSignal(rawExpected)
+                        ?: return failure(
+                            "قيمة expected_signal غير معروفة في السطر ${lineIndex + 1}. القيم المقبولة: CALL/1 أو PUT/-1 أو WAIT/0 أو NA."
+                        )
+                    expectedSignals?.add(expected)
+                }
             }
 
             bars += PineOhlcBar(timestamp, open, high, low, close, volume)
