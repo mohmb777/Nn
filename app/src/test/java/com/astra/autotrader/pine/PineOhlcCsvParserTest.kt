@@ -82,6 +82,18 @@ class PineOhlcCsvParserTest {
         assertTrue(PineOhlcCsvParser.parse(duplicate).errorArabic!!.contains("مكررة"))
     }
 
+    @Test fun rejectsNonNumericVolumeInsteadOfReplacingItWithZero() {
+        val csv = """
+            time,open,high,low,close,volume
+            1794219000000,1.10,1.12,1.09,1.11,unknown
+        """.trimIndent()
+
+        val result = PineOhlcCsvParser.parse(csv)
+
+        assertFalse(result.success)
+        assertTrue(result.errorArabic!!.contains("volume"))
+    }
+
     @Test fun rejectsUnclosedQuotesAndOversizedInput() {
         val malformed = "time,open,high,low,close\n1794219000000,1.1,1.2,1.0,\"1.1"
         val oversized = "x".repeat(PineOhlcCsvParser.MAX_CSV_CHARS + 1)
