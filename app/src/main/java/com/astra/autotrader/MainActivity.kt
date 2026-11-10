@@ -324,7 +324,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
             item {
                 InfoCard(
                     "ملف OHLC المحلي",
-                    "@@{loaded.bars.size} شمعة" +
+                    "${loaded.bars.size} شمعة" +
                         if (loaded.expectedSignals != null) " — يحتوي إشارات مرجعية للمقارنة."
                         else " — لا يحتوي expected_signal؛ لن تُحسب نسبة التطابق."
                 )
@@ -386,7 +386,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                 item {
                     InfoCard(
                         signal.name,
-                        "السطر @@{signal.sourceLine}: @@{signal.expression} — الاتجاه: @@{signal.direction}. " +
+                        "السطر ${signal.sourceLine}: ${signal.expression} — الاتجاه: ${signal.direction}. " +
                             if (signal.compiledExpression == null) "غير مترجم." else "تعبير داخلي آمن."
                     )
                 }
@@ -394,15 +394,15 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
             converted.entries.forEach { entry ->
                 item {
                     InfoCard(
-                        "دخول @@{entry.id}",
-                        "@@{entry.direction} — الشرط: @@{entry.conditionText} — قاعدة داخلية فقط."
+                        "دخول ${entry.id}",
+                        "${entry.direction} — الشرط: ${entry.conditionText} — قاعدة داخلية فقط."
                     )
                 }
             }
             converted.exits.forEach { exit ->
                 item {
                     InfoCard(
-                        "خروج @@{exit.id}",
+                        "خروج ${exit.id}",
                         listOfNotNull(
                             exit.fromEntry?.let { "من الدخول: $it" },
                             exit.stopText?.let { "SL/stop: $it" },
@@ -430,7 +430,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     } else {
                         InfoCard(
                             "نتائج إعادة الاختبار",
-                            "الشموع: @@{report.totalBars} — CALL: @@{report.callCount} — PUT: @@{report.putCount} — WAIT: @@{report.waitCount}"
+                            "الشموع: ${report.totalBars} — CALL: ${report.callCount} — PUT: ${report.putCount} — WAIT: ${report.waitCount}"
                         )
                     }
                 }
@@ -438,14 +438,14 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     item {
                         InfoCard(
                             "مقارنة الإشارات المرجعية",
-                            "المقارنة: @@{report.comparedBars} — المتطابق: @@{report.matchedBars} — المختلف: @@{report.mismatchCount} — نسبة التطابق: " +
+                            "المقارنة: ${report.comparedBars} — المتطابق: ${report.matchedBars} — المختلف: ${report.mismatchCount} — نسبة التطابق: " +
                                 String.format(java.util.Locale.US, "%.2f", report.matchRatePercent ?: 0.0) + "%"
                         )
                     }
                     report.mismatchSamples.forEach { mismatch ->
                         item {
                             Text(
-                                "اختلاف عند الشمعة @@{mismatch.index + 1}: المتوقع @@{mismatch.expected}، الفعلي @@{mismatch.actual}",
+                                "اختلاف عند الشمعة ${mismatch.index + 1}: المتوقع ${mismatch.expected}، الفعلي ${mismatch.actual}",
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall
                             )
@@ -465,7 +465,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     report.recentSignals.takeLast(10).forEach { event ->
                         item {
                             Text(
-                                "@@{event.action} — الشمعة @@{event.index + 1} — @@{event.activeRules.joinToString()}",
+                                "${event.action} — الشمعة ${event.index + 1} — ${event.activeRules.joinToString()}",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
