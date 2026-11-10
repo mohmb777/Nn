@@ -94,9 +94,9 @@ object PineOhlcCsvParser {
             }
 
             val fields = splitCsvLine(line, delimiter)
-                ?: return failure("صيغة CSV غير صالحة في السطر @@{lineIndex + 1}: علامات اقتباس غير مكتملة.")
+                ?: return failure("صيغة CSV غير صالحة في السطر ${lineIndex + 1}: علامات اقتباس غير مكتملة.")
             if (fields.size <= requiredLastIndex) {
-                return failure("عدد الأعمدة غير كافٍ في السطر @@{lineIndex + 1}.")
+                return failure("عدد الأعمدة غير كافٍ في السطر ${lineIndex + 1}.")
             }
 
             val rawTime = fields[timeIndex].trim()
@@ -104,45 +104,45 @@ object PineOhlcCsvParser {
             val timestamp = when {
                 numericTime != null && numericTime >= MIN_EPOCH_MILLIS -> numericTime
                 numericTime != null -> return failure(
-                    "الوقت في السطر @@{lineIndex + 1} يبدو Unix seconds. استخدم Unix milliseconds أو ISO-8601 مع منطقة زمنية؛ لن نخمن التحويل."
+                    "الوقت في السطر ${lineIndex + 1} يبدو Unix seconds. استخدم Unix milliseconds أو ISO-8601 مع منطقة زمنية؛ لن نخمن التحويل."
                 )
                 else -> parseIsoTimestamp(rawTime) ?: return failure(
-                    "الوقت في السطر @@{lineIndex + 1} غير صالح. استخدم ISO-8601 مع Z/offset أو Unix milliseconds."
+                    "الوقت في السطر ${lineIndex + 1} غير صالح. استخدم ISO-8601 مع Z/offset أو Unix milliseconds."
                 )
             }
 
             if (previousTime != null && timestamp <= previousTime!!) {
-                return failure("أوقات الشموع ليست متزايدة بصرامة عند السطر @@{lineIndex + 1}؛ تحقق من التكرار والترتيب.")
+                return failure("أوقات الشموع ليست متزايدة بصرامة عند السطر ${lineIndex + 1}؛ تحقق من التكرار والترتيب.")
             }
 
             fun numberAt(index: Int): Double? =
                 fields[index].trim().toDoubleOrNull()?.takeIf { it.isFinite() }
 
             val open = numberAt(openIndex)
-                ?: return failure("قيمة open غير رقمية أو غير منتهية في السطر @@{lineIndex + 1}.")
+                ?: return failure("قيمة open غير رقمية أو غير منتهية في السطر ${lineIndex + 1}.")
             val high = numberAt(highIndex)
-                ?: return failure("قيمة high غير رقمية أو غير منتهية في السطر @@{lineIndex + 1}.")
+                ?: return failure("قيمة high غير رقمية أو غير منتهية في السطر ${lineIndex + 1}.")
             val low = numberAt(lowIndex)
-                ?: return failure("قيمة low غير رقمية أو غير منتهية في السطر @@{lineIndex + 1}.")
+                ?: return failure("قيمة low غير رقمية أو غير منتهية في السطر ${lineIndex + 1}.")
             val close = numberAt(closeIndex)
-                ?: return failure("قيمة close غير رقمية أو غير منتهية في السطر @@{lineIndex + 1}.")
+                ?: return failure("قيمة close غير رقمية أو غير منتهية في السطر ${lineIndex + 1}.")
             val volume = volumeIndex?.let { index ->
                 if (fields[index].isBlank()) 0.0 else numberAt(index)
             } ?: 0.0
 
             if (!volume.isFinite() || volume < 0.0) {
-                return failure("قيمة volume سالبة أو غير صالحة في السطر @@{lineIndex + 1}.")
+                return failure("قيمة volume سالبة أو غير صالحة في السطر ${lineIndex + 1}.")
             }
             if (open <= 0.0 || high <= 0.0 || low <= 0.0 || close <= 0.0 ||
                 high < maxOf(open, close) || low > minOf(open, close) || low > high
             ) {
-                return failure("تركيبة OHLC غير منطقية في السطر @@{lineIndex + 1}.")
+                return failure("تركيبة OHLC غير منطقية في السطر ${lineIndex + 1}.")
             }
 
             if (expectedIndex != null) {
                 val expected = parseExpectedSignal(fields[expectedIndex])
                     ?: return failure(
-                        "قيمة expected_signal غير معروفة في السطر @@{lineIndex + 1}. القيم المقبولة: CALL/1 أو PUT/-1 أو WAIT/0."
+                        "قيمة expected_signal غير معروفة في السطر ${lineIndex + 1}. القيم المقبولة: CALL/1 أو PUT/-1 أو WAIT/0."
                     )
                 expectedSignals?.add(expected)
             }
