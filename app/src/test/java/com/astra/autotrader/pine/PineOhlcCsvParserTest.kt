@@ -94,6 +94,23 @@ class PineOhlcCsvParserTest {
         assertTrue(result.errorArabic!!.contains("volume"))
     }
 
+    @Test fun treatsNaReferenceValuesAsUncomparedWarmupBars() {
+        val csv = """
+            time,open,high,low,close,expected_signal
+            1794219000000,1.10,1.12,1.09,1.11,CALL
+            1794219060000,1.11,1.13,1.10,1.12,na
+            1794219120000,1.12,1.14,1.11,1.13,PUT
+        """.trimIndent()
+
+        val result = PineOhlcCsvParser.parse(csv)
+
+        assertTrue(result.errorArabic ?: "parse failed", result.success)
+        assertEquals(
+            listOf(PineSignalAction.CALL, null, PineSignalAction.PUT),
+            result.dataset!!.expectedSignals
+        )
+    }
+
     @Test fun rejectsUnclosedQuotesAndOversizedInput() {
         val malformed = "time,open,high,low,close\n1794219000000,1.1,1.2,1.0,\"1.1"
         val oversized = "x".repeat(PineOhlcCsvParser.MAX_CSV_CHARS + 1)
