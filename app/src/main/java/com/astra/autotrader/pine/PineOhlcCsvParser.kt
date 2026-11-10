@@ -111,6 +111,9 @@ object PineOhlcCsvParser {
                 )
             }
 
+            if (timestamp <= 0L) {
+                return failure("توقيت الشمعة يجب أن يكون موجباً في السطر ${lineIndex + 1}.")
+            }
             if (previousTime != null && timestamp <= previousTime!!) {
                 return failure("أوقات الشموع ليست متزايدة بصرامة عند السطر ${lineIndex + 1}؛ تحقق من التكرار والترتيب.")
             }
@@ -126,9 +129,12 @@ object PineOhlcCsvParser {
                 ?: return failure("قيمة low غير رقمية أو غير منتهية في السطر ${lineIndex + 1}.")
             val close = numberAt(closeIndex)
                 ?: return failure("قيمة close غير رقمية أو غير منتهية في السطر ${lineIndex + 1}.")
-            val volume = volumeIndex?.let { index ->
-                if (fields[index].isBlank()) 0.0 else numberAt(index)
-            } ?: 0.0
+            val volume = when {
+                volumeIndex == null -> 0.0
+                fields[volumeIndex].isBlank() -> 0.0
+                else -> numberAt(volumeIndex)
+                    ?: return failure("قيمة volume غير رقمية أو غير منتهية في السطر ${lineIndex + 1}.")
+            }
 
             if (!volume.isFinite() || volume < 0.0) {
                 return failure("قيمة volume سالبة أو غير صالحة في السطر ${lineIndex + 1}.")
