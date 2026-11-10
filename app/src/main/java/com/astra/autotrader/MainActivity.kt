@@ -23,6 +23,9 @@ import com.astra.autotrader.engine.EngineState
 import com.astra.autotrader.engine.TradingForegroundService
 import com.astra.autotrader.browser.PocketChartDiagnostics
 import com.astra.autotrader.pine.PineScriptConverter
+import com.astra.autotrader.pine.PineOhlcCsvParser
+import com.astra.autotrader.pine.PineOhlcDataset
+import com.astra.autotrader.pine.PineReplayEngine
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -265,30 +268,79 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var source by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<PineScriptConverter.Conversion?>(null) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    var pineFileError by remember { mutableStateOf<String?>(null) }
+    var dataset by remember { mutableStateOf<PineOhlcDataset?>(null) }
+    var csvError by remember { mutableStateOf<String?>(null) }
+    var replayReport by remember { mutableStateOf<com.astra.autotrader.pine.PineReplayReport?>(null) }
+
+    val pinePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            runCatching {
-                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                    ?: error("تعذرت قراءة الملف")
-            }.onSuccess { source = it; result = null }
-                .onFailure { result = PineScriptConverter.convert("") }
+            runCatching { readTextLimited(context, uri, 100_000) }
+                .onSuccess {
+                    source = it
+                    result = null
+                    pineFileError = null
+                    replayReport = null
+                }
+                .onFailure { pineFileError = it.message ?: "تعذرت قراءة ملف Pine." }
         }
     }
+    val csvPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { readTextLimited(context, uri, PineOhlcCsvParser.MAX_CSV_CHARS) }
+                .onSuccess { csv ->
+                    val parsed = PineOhlcCsvParser.parse(csv)
+                    dataset = parsed.dataset
+                    csvError = parsed.errorArabic
+                    replayReport = null
+                }
+                .onFailure {
+                    dataset = null
+                    csvError = it.message ?: "تعذرت قراءة ملف OHLC CSV."
+                    replayReport = null
+                }
+        }
+    }
+
     LazyColumn(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("محوّل Pine Script", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("الصق كود Pine Script v5/v6 أو استورد ملف .pine. المحلل لا ينفذ الكود؛ يعرض فقط الشروط التي يستطيع التحقق منها.") }
+        item { Text("الصق Pine Script v5/v6 أو استورد .pine. المحلل لا ينفذ الكود ولا يستخدم eval.") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }, modifier = Modifier.weight(1f)) {
-                    Text("استيراد ملف .pine")
-                }
-                OutlinedButton(onClick = { source = ""; result = null }, modifier = Modifier.weight(1f)) { Text("مسح") }
+                OutlinedButton(
+                    onClick = { pinePicker.launch(arrayOf("text/*", "application/octet-stream")) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("استيراد .pine") }
+                OutlinedButton(
+                    onClick = { csvPicker.launch(arrayOf("text/csv", "text/*")) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("استيراد OHLC CSV") }
             }
+        }
+        pineFileError?.let { message ->
+            item { Text(message, color = MaterialTheme.colorScheme.error) }
+        }
+        dataset?.let { loaded ->
+            item {
+                InfoCard(
+                    "ملف OHLC المحلي",
+                    "${loaded.bars.size} شمعة" +
+                        if (loaded.expectedSignals != null) " — يحتوي إشارات مرجعية للمقارنة."
+                        else " — لا يحتوي expected_signal؛ لن تُحسب نسبة التطابق."
+                )
+            }
+        }
+        csvError?.let { message ->
+            item { Text("تعذر استيراد OHLC: $message", color = MaterialTheme.colorScheme.error) }
         }
         item {
             OutlinedTextField(
                 value = source,
-                onValueChange = { source = it; result = null },
+                onValueChange = {
+                    source = it
+                    result = null
+                    replayReport = null
+                },
                 label = { Text("كود Pine Script") },
                 placeholder = { Text("//@version=5\nindicator(\"My indicator\")\n...") },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp),
@@ -296,82 +348,167 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
             )
         }
         item {
-            Button(onClick = { result = PineScriptConverter.convert(source) }, enabled = source.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                Text("تحليل وتحويل")
-            }
+            Button(
+                onClick = { result = PineScriptConverter.convert(source); replayReport = null },
+                enabled = source.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("تحليل وتحويل") }
         }
+
         result?.let { converted ->
-            item { InfoCard("نوع السكربت", when (converted.kind) {
-                PineScriptConverter.ScriptKind.INDICATOR -> "مؤشر"
-                PineScriptConverter.ScriptKind.STRATEGY -> "استراتيجية"
-                null -> "غير محدد"
-            } + (converted.title?.let { " — $it" } ?: "")) }
-            item { InfoCard("نتيجة التحليل", if (converted.supported) "اجتاز الفحص البنيوي — ليس إثباتاً لتطابق الإشارات." else "تعذر التحويل الكامل؛ راجع الأخطاء أدناه.") }
-            converted.errors.forEach { message -> item { Text("خطأ: $message", color = MaterialTheme.colorScheme.error) } }
-            converted.warnings.forEach { message -> item { Text("تنبيه: $message", color = MaterialTheme.colorScheme.tertiary) } }
-            if (converted.declarations.isNotEmpty()) {
-                item { Text("التعريفات المكتشفة", style = MaterialTheme.typography.titleMedium) }
-                converted.declarations.forEach { line -> item { Text(line, style = MaterialTheme.typography.bodySmall) } }
+            item {
+                InfoCard(
+                    "نوع السكربت",
+                    when (converted.kind) {
+                        PineScriptConverter.ScriptKind.INDICATOR -> "مؤشر"
+                        PineScriptConverter.ScriptKind.STRATEGY -> "استراتيجية"
+                        null -> "غير محدد"
+                    } + (converted.title?.let { " — $it" } ?: "")
+                )
             }
-            if (converted.signals.isNotEmpty()) {
-                item { Text("شروط الإشارة المكتشفة", style = MaterialTheme.typography.titleMedium) }
-                converted.signals.forEach { signal ->
-                    item {
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(signal.name, style = MaterialTheme.typography.titleSmall)
-                                Text("السطر ${signal.sourceLine}: ${signal.expression}", style = MaterialTheme.typography.bodySmall)
-                                Text("الاتجاه المعلن: " + when (signal.direction) {
-                                    com.astra.autotrader.pine.PineSignalDirection.CALL -> "CALL"
-                                    com.astra.autotrader.pine.PineSignalDirection.PUT -> "PUT"
-                                    com.astra.autotrader.pine.PineSignalDirection.UNKNOWN -> "غير محدد — WAIT"
-                                }, style = MaterialTheme.typography.labelSmall)
-                                Text(
-                                    if (signal.compiledExpression != null) "تم تحويل الشرط إلى تعبير داخلي آمن."
-                                    else "لم يُحوّل الشرط؛ لن ينتج إشارة قابلة للتقييم.",
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                                Text("تطابق الإشارات غير مثبت قبل الاختبار على بيانات OHLC متطابقة.", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
+            item {
+                InfoCard(
+                    "نتيجة التحليل",
+                    if (converted.supported) "اجتاز الفحص البنيوي — لا يعني ذلك تطابق الإشارات."
+                    else "تعذر التحويل الكامل؛ راجع الأخطاء."
+                )
+            }
+            converted.errors.forEach { message ->
+                item { Text("خطأ: $message", color = MaterialTheme.colorScheme.error) }
+            }
+            converted.warnings.forEach { message ->
+                item { Text("تنبيه: $message", color = MaterialTheme.colorScheme.tertiary) }
+            }
+            converted.declarations.forEach { line ->
+                item { Text(line, style = MaterialTheme.typography.bodySmall) }
+            }
+            converted.signals.forEach { signal ->
+                item {
+                    InfoCard(
+                        signal.name,
+                        "السطر ${signal.sourceLine}: ${signal.expression} — الاتجاه: ${signal.direction}. " +
+                            if (signal.compiledExpression == null) "غير مترجم." else "تعبير داخلي آمن."
+                    )
                 }
             }
-            if (converted.entries.isNotEmpty()) {
-                item { Text("قواعد الدخول المستخرجة", style = MaterialTheme.typography.titleMedium) }
-                converted.entries.forEach { entry ->
-                    item {
+            converted.entries.forEach { entry ->
+                item {
+                    InfoCard(
+                        "دخول ${entry.id}",
+                        "${entry.direction} — الشرط: ${entry.conditionText} — قاعدة داخلية فقط."
+                    )
+                }
+            }
+            converted.exits.forEach { exit ->
+                item {
+                    InfoCard(
+                        "خروج ${exit.id}",
+                        listOfNotNull(
+                            exit.fromEntry?.let { "من الدخول: $it" },
+                            exit.stopText?.let { "SL/stop: $it" },
+                            exit.limitText?.let { "TP/limit: $it" },
+                            exit.lossTicksText?.let { "loss: $it ticks" },
+                            exit.profitTicksText?.let { "profit: $it ticks" }
+                        ).joinToString(" — ") + " — لا يوجد تنفيذ."
+                    )
+                }
+            }
+            item {
+                Button(
+                    onClick = {
+                        val loaded = dataset
+                        if (loaded != null) replayReport = PineReplayEngine.run(converted, loaded)
+                    },
+                    enabled = converted.supported && dataset != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("إعادة اختبار الإشارات على ملف OHLC") }
+            }
+            replayReport?.let { report ->
+                item {
+                    if (!report.success) {
+                        Text(report.errorArabic ?: "فشل الاختبار.", color = MaterialTheme.colorScheme.error)
+                    } else {
                         InfoCard(
-                            "دخول ${entry.id}",
-                            "${entry.direction.name} — الشرط: ${entry.conditionText}" +
-                                (entry.quantityText?.let { " — الكمية: $it" } ?: "") +
-                                " — قاعدة داخلية فقط، لا ترسل أمراً."
+                            "نتائج إعادة الاختبار",
+                            "الشموع: ${report.totalBars} — CALL: ${report.callCount} — PUT: ${report.putCount} — WAIT: ${report.waitCount}"
                         )
                     }
                 }
-            }
-            if (converted.exits.isNotEmpty()) {
-                item { Text("قواعد الخروج ومستويات SL/TP", style = MaterialTheme.typography.titleMedium) }
-                converted.exits.forEach { exit ->
+                if (report.success && report.comparedBars > 0) {
                     item {
                         InfoCard(
-                            "خروج ${exit.id}",
-                            listOfNotNull(
-                                exit.fromEntry?.let { "من الدخول: $it" },
-                                exit.stopText?.let { "SL/stop: $it" },
-                                exit.limitText?.let { "TP/limit: $it" },
-                                exit.lossTicksText?.let { "loss: $it ticks" },
-                                exit.profitTicksText?.let { "profit: $it ticks" }
-                            ).joinToString(" — ") + " — لا يوجد تنفيذ."
+                            "مقارنة الإشارات المرجعية",
+                            "المقارنة: ${report.comparedBars} — المتطابق: ${report.matchedBars} — المختلف: ${report.mismatchCount} — نسبة التطابق: " +
+                                String.format(java.util.Locale.US, "%.2f", report.matchRatePercent ?: 0.0) + "%"
+                        )
+                    }
+                    report.mismatchSamples.forEach { mismatch ->
+                        item {
+                            Text(
+                                "اختلاف عند الشمعة ${mismatch.index + 1}: المتوقع ${mismatch.expected}، الفعلي ${mismatch.actual}",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                } else if (report.success) {
+                    item {
+                        Text(
+                            "لا توجد صفوف expected_signal قابلة للمقارنة؛ قد تكون قيمها NA أو فارغة.",
+                            color = MaterialTheme.colorScheme.tertiary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                if (report.success && report.recentSignals.isNotEmpty()) {
+                    item { Text("آخر إشارات غير WAIT", style = MaterialTheme.typography.titleMedium) }
+                    report.recentSignals.takeLast(10).forEach { event ->
+                        item {
+                            Text(
+                                "${event.action} — الشمعة ${event.index + 1} — ${event.activeRules.joinToString()}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+                if (report.success && report.exitsPresent) {
+                    item {
+                        Text(
+                            "الاختبار يقارن إشارات الدخول فقط؛ لا يحاكي strategy.exit أو SL/TP.",
+                            color = MaterialTheme.colorScheme.tertiary,
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
             }
         }
         item {
-            InfoCard("حدود التشغيل الآمن", "لا يوجد تنفيذ للكود ولا أوامر تداول. لا تزال قراءة OHLC من شارت Pocket Option ومنفذ Demo غير موصولين؛ الناتج للمعاينة فقط. لا تستخدمه لاتخاذ صفقة قبل التحقق.")
+            InfoCard(
+                "حدود التشغيل الآمن",
+                "ملف OHLC محلي يختاره المستخدم. لا يجلب ASTRA أسعاراً ولا يتصل بمصدر خارجي. إعادة الاختبار لا تفتح صفقات ولا ترسل أوامر إلى Pocket Option. قراءة الشموع المباشرة ومنفذ Demo غير موصولين."
+            )
         }
+    }
+}
+
+private fun readTextLimited(
+    context: android.content.Context,
+    uri: android.net.Uri,
+    maxChars: Int
+): String {
+    val input = context.contentResolver.openInputStream(uri) ?: error("تعذرت قراءة الملف المحدد.")
+    return input.bufferedReader().use { reader ->
+        val output = StringBuilder()
+        val buffer = CharArray(8192)
+        while (true) {
+            val count = reader.read(buffer)
+            if (count < 0) break
+            if (output.length + count > maxChars) {
+                error("حجم الملف يتجاوز الحد المسموح ($maxChars حرف).")
+            }
+            output.append(buffer, 0, count)
+        }
+        output.toString()
     }
 }
 
