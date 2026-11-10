@@ -6,7 +6,7 @@ import java.util.Locale
 
 data class PineOhlcDataset(
     val bars: List<PineOhlcBar>,
-    val expectedSignals: List<PineSignalAction>? = null,
+    val expectedSignals: List<PineSignalAction?>? = null,
     val sourceName: String? = null
 )
 
