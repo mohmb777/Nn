@@ -145,7 +145,8 @@ object PineStrategyReplayEngine {
                         dataset.bars[queued.signalIndex].close, tickSize
                     )
                 }
-                if (resolution?.errorArabic != null) return failure(resolution.errorArabic)
+                val resolutionError = resolution?.errorArabic
+                if (resolutionError != null) return failure(resolutionError)
                 position = ActivePosition(
                     queued.signalIndex, index, bar.time, queued.direction,
                     bar.open, resolution?.levels
@@ -179,7 +180,7 @@ object PineStrategyReplayEngine {
                 val resolution = resolveLevels(
                     raw, stillOpen.direction, stillOpen.entryPrice, bar.close, tickSize
                 )
-                if (resolution.errorArabic != null) return failure(resolution.errorArabic)
+                resolution.errorArabic?.let { return failure(it) }
                 position = stillOpen.copy(exitLevels = resolution.levels)
             }
 
@@ -192,7 +193,7 @@ object PineStrategyReplayEngine {
                 }
                 if (raw != null) {
                     val validation = resolveLevels(raw, entry.direction, bar.close, bar.close, tickSize)
-                    if (validation.errorArabic != null) return failure(validation.errorArabic)
+                    validation.errorArabic?.let { return failure(it) }
                 }
                 pending = PendingEntry(index, entry.direction, raw)
                 entrySignals++
