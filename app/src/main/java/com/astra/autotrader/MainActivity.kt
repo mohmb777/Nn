@@ -26,6 +26,7 @@ import com.astra.autotrader.pine.PineScriptConverter
 import com.astra.autotrader.pine.PineOhlcCsvParser
 import com.astra.autotrader.pine.PineOhlcDataset
 import com.astra.autotrader.pine.PineReplayEngine
+import com.astra.autotrader.pine.PineStrategyReplayEngine
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -272,6 +273,8 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
     var dataset by remember { mutableStateOf<PineOhlcDataset?>(null) }
     var csvError by remember { mutableStateOf<String?>(null) }
     var replayReport by remember { mutableStateOf<com.astra.autotrader.pine.PineReplayReport?>(null) }
+    var tickSizeText by remember { mutableStateOf("") }
+    var strategyReplayReport by remember { mutableStateOf<com.astra.autotrader.pine.PineStrategyReplayReport?>(null) }
 
     val pinePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -280,7 +283,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     source = it
                     result = null
                     pineFileError = null
-                    replayReport = null
+                    replayReport = null; strategyReplayReport = null
                 }
                 .onFailure { pineFileError = it.message ?: "تعذرت قراءة ملف Pine." }
         }
@@ -292,12 +295,12 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     val parsed = PineOhlcCsvParser.parse(csv)
                     dataset = parsed.dataset
                     csvError = parsed.errorArabic
-                    replayReport = null
+                    replayReport = null; strategyReplayReport = null
                 }
                 .onFailure {
                     dataset = null
                     csvError = it.message ?: "تعذرت قراءة ملف OHLC CSV."
-                    replayReport = null
+                    replayReport = null; strategyReplayReport = null
                 }
         }
     }
@@ -339,7 +342,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                 onValueChange = {
                     source = it
                     result = null
-                    replayReport = null
+                    replayReport = null; strategyReplayReport = null
                 },
                 label = { Text("كود Pine Script") },
                 placeholder = { Text("//@version=5\nindicator(\"My indicator\")\n...") },
@@ -349,7 +352,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
         }
         item {
             Button(
-                onClick = { result = PineScriptConverter.convert(source); replayReport = null },
+                onClick = { result = PineScriptConverter.convert(source); replayReport = null; strategyReplayReport = null },
                 enabled = source.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) { Text("تحليل وتحويل") }
@@ -422,6 +425,85 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     enabled = converted.supported && dataset != null,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("إعادة اختبار الإشارات على ملف OHLC") }
+            }
+            if (converted.kind == PineScriptConverter.ScriptKind.STRATEGY && converted.entries.isNotEmpty()) {
+                item {
+                    OutlinedTextField(
+                        value = tickSizeText,
+                        onValueChange = { tickSizeText = it; strategyReplayReport = null },
+                        label = { Text("حجم النقطة Tick size") },
+                        supportingText = { Text("مطلوب فقط عند استخدام loss أو profit داخل strategy.exit.") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+                item {
+                    Button(
+                        onClick = {
+                            val loaded = dataset
+                            if (loaded != null) {
+                                val tick = tickSizeText.trim().let {
+                                    if (it.isEmpty()) null else it.toDoubleOrNull() ?: Double.NaN
+                                }
+                                strategyReplayReport = PineStrategyReplayEngine.run(converted, loaded, tick)
+                            }
+                        },
+                        enabled = converted.supported && dataset != null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("محاكاة الاستراتيجية مع SL/TP") }
+                }
+                strategyReplayReport?.let { strategyReport ->
+                    item {
+                        if (!strategyReport.success) {
+                            Text(strategyReport.errorArabic ?: "فشلت محاكاة الاستراتيجية.", color = MaterialTheme.colorScheme.error)
+                        } else {
+                            InfoCard(
+                                "نتائج محاكاة الاستراتيجية",
+                                "الشموع: ${strategyReport.totalBars} — إشارات الدخول: ${strategyReport.entrySignals} — الصفقات المغلقة: ${strategyReport.trades.size} — صافي النقاط: " +
+                                    String.format(java.util.Locale.US, "%.5f", strategyReport.netProfitPoints) +
+                                    " — شموع SL/TP الملتبسة: ${strategyReport.ambiguousExitBars}"
+                            )
+                        }
+                    }
+                    if (strategyReport.success) {
+                        strategyReport.trades.takeLast(20).forEach { trade ->
+                            item {
+                                InfoCard(
+                                    "محاكاة ${trade.direction} — ${trade.exitType}",
+                                    "إشارة: ${trade.signalIndex + 1} — دخول: ${trade.entryIndex + 1} بسعر " +
+                                        String.format(java.util.Locale.US, "%.5f", trade.entryPrice) +
+                                        " — خروج: ${trade.exitIndex + 1} بسعر " +
+                                        String.format(java.util.Locale.US, "%.5f", trade.exitPrice) +
+                                        " — النتيجة: " +
+                                        String.format(java.util.Locale.US, "%.5f", trade.profitPoints) +
+                                        (if (trade.ambiguousBar) " — تم اختيار SL أولاً عند لمس المستويين." else "")
+                                )
+                            }
+                        }
+                        strategyReport.openPosition?.let { open ->
+                            item {
+                                InfoCard(
+                                    "مركز مفتوح عند نهاية الملف",
+                                    "${open.direction} — دخول بسعر " +
+                                        String.format(java.util.Locale.US, "%.5f", open.entryPrice) +
+                                        (open.stopPrice?.let { " — SL " + String.format(java.util.Locale.US, "%.5f", it) } ?: "") +
+                                        (open.limitPrice?.let { " — TP " + String.format(java.util.Locale.US, "%.5f", it) } ?: "")
+                                )
+                            }
+                        }
+                        strategyReport.pendingEntrySignalIndex?.let { pendingIndex ->
+                            item {
+                                Text(
+                                    "إشارة دخول عند الشمعة ${pendingIndex + 1} لم تتوفر بعدها شمعة تالية لتعبئة الدخول.",
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        }
+                        strategyReport.warnings.forEach { warning ->
+                            item { Text("تنبيه المحاكاة: " + warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall) }
+                        }
+                    }
+                }
             }
             replayReport?.let { report ->
                 item {
