@@ -215,4 +215,68 @@ class PineStrategyReplayEngineTest {
         assertFalse(report.success)
         assertTrue(report.errorArabic!!.contains("غير المشروط"))
     }
+
+    @Test fun comparesRawEntryConditionsAgainstReferenceSignalsNotTradeFills() {
+        val converted = script(exitArguments = null)
+        val bars = listOf(
+            bar(20_000, 100.0, 102.0, 99.5, 101.0),
+            bar(21_000, 101.0, 102.0, 100.0, 100.5),
+            bar(22_000, 100.5, 102.0, 100.0, 101.5)
+        )
+        val references = listOf(
+            PineSignalAction.CALL,
+            PineSignalAction.WAIT,
+            PineSignalAction.PUT
+        )
+
+        val report = PineStrategyReplayEngine.run(
+            converted,
+            PineOhlcDataset(bars, expectedSignals = references)
+        )
+
+        assertTrue(report.errorArabic ?: "simulation failed", report.success)
+        assertEquals(1, report.entrySignals)
+        assertEquals(3, report.comparedBars)
+        assertEquals(2, report.matchedBars)
+        assertEquals(1, report.mismatchCount)
+        assertEquals(0, report.unavailableComparisonBars)
+        assertEquals(66.666666, report.matchRatePercent!!, 0.001)
+        assertEquals(2, report.mismatchSamples.single().index)
+        assertEquals(PineSignalAction.PUT, report.mismatchSamples.single().expected)
+        assertEquals(PineSignalAction.CALL, report.mismatchSamples.single().actual)
+    }
+
+    @Test fun excludesUnavailableWarmupConditionsFromReferenceComparison() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Warmup parity")
+                enter = ta.sma(close, 3) > close
+                strategy.entry("Entry", strategy.long, when=enter)
+            """.trimIndent()
+        )
+        assertTrue(converted.errors.joinToString(), converted.supported)
+        val bars = listOf(
+            bar(30_000, 1.0, 1.1, 0.9, 1.0),
+            bar(31_000, 1.0, 3.1, 0.9, 3.0),
+            bar(32_000, 3.0, 3.1, 0.9, 1.0)
+        )
+        val references = listOf(
+            PineSignalAction.CALL,
+            PineSignalAction.PUT,
+            PineSignalAction.CALL
+        )
+
+        val report = PineStrategyReplayEngine.run(
+            converted,
+            PineOhlcDataset(bars, expectedSignals = references)
+        )
+
+        assertTrue(report.errorArabic ?: "simulation failed", report.success)
+        assertEquals(2, report.unavailableComparisonBars)
+        assertEquals(1, report.comparedBars)
+        assertEquals(1, report.matchedBars)
+        assertEquals(0, report.mismatchCount)
+        assertEquals(100.0, report.matchRatePercent!!, 0.0)
+    }
 }

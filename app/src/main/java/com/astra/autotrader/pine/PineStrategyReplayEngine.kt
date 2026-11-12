@@ -33,9 +33,16 @@ data class PineStrategyReplayReport(
     val pendingEntrySignalIndex: Int?,
     val ambiguousExitBars: Int,
     val netProfitPoints: Double,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val comparedBars: Int = 0,
+    val matchedBars: Int = 0,
+    val mismatchCount: Int = 0,
+    val unavailableComparisonBars: Int = 0,
+    val mismatchSamples: List<PineReplayMismatch> = emptyList()
 ) {
     val success: Boolean get() = errorArabic == null
+    val matchRatePercent: Double?
+        get() = if (comparedBars == 0) null else matchedBars * 100.0 / comparedBars
 }
 
 /**
@@ -133,9 +140,36 @@ object PineStrategyReplayEngine {
         var position: ActivePosition? = null
         var entrySignals = 0
         var ambiguousExitBars = 0
+        var comparedBars = 0
+        var matchedBars = 0
+        var mismatchCount = 0
+        var unavailableComparisonBars = 0
+        val mismatchSamples = mutableListOf<PineReplayMismatch>()
 
         for (index in dataset.bars.indices) {
             val bar = dataset.bars[index]
+            val entryCondition = evaluator.entryConditionAt(entry, index)
+            val expectedSignal = dataset.expectedSignals?.get(index)
+            if (expectedSignal != null) {
+                if (entryCondition == null) {
+                    unavailableComparisonBars++
+                } else {
+                    val actualSignal = when {
+                        !entryCondition -> PineSignalAction.WAIT
+                        entry.direction == PineScriptConverter.StrategyDirection.LONG -> PineSignalAction.CALL
+                        else -> PineSignalAction.PUT
+                    }
+                    comparedBars++
+                    if (actualSignal == expectedSignal) {
+                        matchedBars++
+                    } else {
+                        mismatchCount++
+                        if (mismatchSamples.size < 20) {
+                            mismatchSamples += PineReplayMismatch(index, bar.time, expectedSignal, actualSignal)
+                        }
+                    }
+                }
+            }
             val queued = pending
             if (queued != null) {
                 pending = null
@@ -185,7 +219,7 @@ object PineStrategyReplayEngine {
             }
 
             if (position == null && pending == null && !closedOnThisBar &&
-                evaluator.entryConditionAt(entry, index) == true
+                entryCondition == true
             ) {
                 val raw = if (exitRule == null) null else {
                     evaluator.exitLevelsAt(exitRule, index)
@@ -214,11 +248,22 @@ object PineStrategyReplayEngine {
             add("المحاكاة تعمل على ملف OHLC محلي فقط؛ لا تتصل بـ Pocket Option ولا تفتح صفقات.")
             if (conversion.signals.isNotEmpty()) add("تم تجاهل alertcondition وplotshape/plotchar في محاكاة الأوامر؛ مصدر الدخول الوحيد هو strategy.entry.")
             if (usesTicks) add("تم تحويل loss/profit باستخدام tick size الذي أدخله المستخدم؛ صحة النتيجة تعتمد على صحة هذه القيمة.")
+            if (dataset.expectedSignals != null) {
+                add("مقارنة الإشارات المرجعية تقيس شرط strategy.entry الخام لكل شمعة، ولا تقارن تعبئة الأوامر أو نتائج SL/TP أو محاكي TradingView.")
+                if (unavailableComparisonBars > 0) {
+                    add("استُبعدت ${unavailableComparisonBars} شمعة من المقارنة لأن شرط الدخول لم ينتج قيمة قابلة للتقييم؛ راجع شموع الإحماء وقيم NA.")
+                }
+            }
         }
 
         return PineStrategyReplayReport(
             null, dataset.bars.size, entrySignals, trades, openPosition,
-            pending?.signalIndex, ambiguousExitBars, trades.sumOf { it.profitPoints }, warnings
+            pending?.signalIndex, ambiguousExitBars, trades.sumOf { it.profitPoints }, warnings,
+            comparedBars = comparedBars,
+            matchedBars = matchedBars,
+            mismatchCount = mismatchCount,
+            unavailableComparisonBars = unavailableComparisonBars,
+            mismatchSamples = mismatchSamples
         )
     }
 

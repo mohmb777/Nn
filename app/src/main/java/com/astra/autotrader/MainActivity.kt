@@ -465,6 +465,28 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                             )
                         }
                     }
+                    if (strategyReport.success &&
+                        (strategyReport.comparedBars > 0 || strategyReport.unavailableComparisonBars > 0)
+                    ) {
+                        item {
+                            val rate = strategyReport.matchRatePercent?.let {
+                                String.format(java.util.Locale.US, "%.2f", it) + "%"
+                            } ?: "غير متاح"
+                            InfoCard(
+                                "مقارنة شرط الدخول مع الإشارات المرجعية",
+                                "المقارنة: ${strategyReport.comparedBars} — المتطابق: ${strategyReport.matchedBars} — المختلف: ${strategyReport.mismatchCount} — غير القابل للتقييم: ${strategyReport.unavailableComparisonBars} — نسبة التطابق: $rate. هذه مقارنة لشرط الدخول الخام وليست لمواضع تعبئة الصفقات."
+                            )
+                        }
+                        strategyReport.mismatchSamples.forEach { mismatch ->
+                            item {
+                                Text(
+                                    "اختلاف عند الشمعة ${mismatch.index + 1}: المتوقع ${mismatch.expected}، الفعلي ${mismatch.actual}",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
                     if (strategyReport.success) {
                         strategyReport.trades.takeLast(20).forEach { trade ->
                             item {
