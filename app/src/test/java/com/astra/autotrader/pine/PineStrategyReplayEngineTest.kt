@@ -215,8 +215,6 @@ class PineStrategyReplayEngineTest {
         assertFalse(report.success)
         assertTrue(report.errorArabic!!.contains("غير المشروط"))
     }
-}
-
 
     @Test fun comparesRawEntryConditionsAgainstReferenceSignalsNotTradeFills() {
         val converted = script(exitArguments = null)
@@ -281,3 +279,4 @@ class PineStrategyReplayEngineTest {
         assertEquals(0, report.mismatchCount)
         assertEquals(100.0, report.matchRatePercent!!, 0.0)
     }
+}
