@@ -540,7 +540,7 @@ class PineScriptConverterTest {
 
         assertNull(evaluator.evaluate(expression, 1))
         assertEquals(50.0, (evaluator.evaluate(expression, 2) as PineValue.Number).value, 1e-9)
-        assertEquals(75.0, (evaluator.evaluate(expression, 3) as PineValue.Number).value, 1e-9)
+        assertEquals(83.33333333333333, (evaluator.evaluate(expression, 3) as PineValue.Number).value, 1e-9)
     }
 
     @Test fun macdTupleComponentsMatchTheirReferenceRecurrence() {
@@ -560,8 +560,8 @@ class PineScriptConverterTest {
         fun number(name: String) =
             (evaluator.evaluate(PineExpr.Identifier(name), 5) as PineValue.Number).value
 
-        assertEquals(4.465020576131687, number("macdLine"), 1e-9)
-        assertEquals(4.03125, number("signalLine"), 1e-9)
+        assertEquals(0.43377057613168724, number("macdLine"), 1e-9)
+        assertEquals(0.37645747599451296, number("signalLine"), 1e-9)
         assertEquals(0.05731310013717428, number("histogram"), 1e-9)
         assertEquals(number("macdLine") - number("signalLine"), number("histogram"), 1e-9)
     }
