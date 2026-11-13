@@ -251,15 +251,29 @@ class PineScriptEvaluator(
         return output
     }
 
-    private fun sma(values: List<Double?>, length: Int): List<Double> =
-        values.indices.map { index ->
-            if (index + 1 < length) Double.NaN
-            else {
-                val window = values.subList(index - length + 1, index + 1)
-                if (window.any { it == null || !it.isFinite() }) Double.NaN
-                else window.sumOf { it!! } / length
+    private fun sma(values: List<Double?>, length: Int): List<Double> {
+        val output = MutableList(values.size) { Double.NaN }
+        val window = mutableListOf<Double>()
+        var sum = 0.0
+
+        values.forEachIndexed { index, value ->
+            if (value != null && value.isFinite()) {
+                window += value
+                sum += value
+                if (window.size > length) {
+                    sum -= window.removeAt(0)
+                }
+            }
+
+            // Pine ta.sma() uses the latest length non-na source values.
+            // A missing sample does not invalidate the previous valid observations.
+            if (window.size == length) {
+                val average = sum / length
+                if (average.isFinite()) output[index] = average
             }
         }
+        return output
+    }
 
     private fun rsi(values: List<Double?>, length: Int): List<Double> {
         val output = MutableList(values.size) { Double.NaN }

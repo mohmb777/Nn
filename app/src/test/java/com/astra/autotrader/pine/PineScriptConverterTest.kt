@@ -491,4 +491,79 @@ class PineScriptConverterTest {
         assertTrue(conditionalExit.errors.any { it.contains("داخل if/else") })
     }
 
+    @Test fun smaIgnoresNaAndUsesTheLatestLengthNonNaValues() {
+        val expression = PineExpressionParser.parse("ta.sma(close / (close - open), 2)")
+        val bars = listOf(
+            PineOhlcBar(1, 1.0, 2.0, 0.5, 2.0), // 2.0
+            PineOhlcBar(2, 3.0, 3.5, 2.5, 3.0), // division by zero -> na
+            PineOhlcBar(3, 2.0, 4.0, 1.0, 4.0), // 2.0
+            PineOhlcBar(4, 1.0, 3.0, 0.5, 3.0)  // 1.5
+        )
+        val evaluator = PineScriptEvaluator(bars, emptyMap())
+
+        assertNull(evaluator.evaluate(expression, 1))
+        assertEquals(2.0, (evaluator.evaluate(expression, 2) as PineValue.Number).value, 1e-9)
+        assertEquals(1.75, (evaluator.evaluate(expression, 3) as PineValue.Number).value, 1e-9)
+    }
+
+    @Test fun smaWarmupCountsNonNaSamplesRatherThanCalendarBars() {
+        val expression = PineExpressionParser.parse("ta.sma(close / (close - open), 3)")
+        val bars = listOf(
+            PineOhlcBar(1, 1.0, 2.0, 0.5, 2.0),
+            PineOhlcBar(2, 3.0, 3.5, 2.5, 3.0),
+            PineOhlcBar(3, 2.0, 4.0, 1.0, 4.0)
+        )
+        val evaluator = PineScriptEvaluator(bars, emptyMap())
+
+        assertNull(evaluator.evaluate(expression, 2))
+    }
+
+    @Test fun emaKeepsItsRecursiveStateAcrossNaSourceSamples() {
+        val expression = PineExpressionParser.parse("ta.ema(close / (close - open), 2)")
+        val bars = listOf(
+            PineOhlcBar(1, 1.0, 2.0, 0.5, 2.0), // 2.0
+            PineOhlcBar(2, 3.0, 3.5, 2.5, 3.0), // na
+            PineOhlcBar(3, 3.0, 5.0, 2.5, 5.0)  // 2.5
+        )
+        val value = PineScriptEvaluator(bars, emptyMap()).evaluate(expression, 2) as PineValue.Number
+
+        assertEquals(7.0 / 3.0, value.value, 1e-9)
+    }
+
+    @Test fun rsiUsesWilderSeedAndSmoothingReferenceValues() {
+        val expression = PineExpressionParser.parse("ta.rsi(close, 2)")
+        val closes = listOf(10.0, 11.0, 10.0, 12.0)
+        val bars = closes.mapIndexed { index, close ->
+            PineOhlcBar(index + 1L, close, close + 1.0, close - 1.0, close)
+        }
+        val evaluator = PineScriptEvaluator(bars, emptyMap())
+
+        assertNull(evaluator.evaluate(expression, 1))
+        assertEquals(50.0, (evaluator.evaluate(expression, 2) as PineValue.Number).value, 1e-9)
+        assertEquals(83.33333333333333, (evaluator.evaluate(expression, 3) as PineValue.Number).value, 1e-9)
+    }
+
+    @Test fun macdTupleComponentsMatchTheirReferenceRecurrence() {
+        val conversion = PineScriptConverter.convert("""
+            //@version=5
+            indicator("MACD reference")
+            [macdLine, signalLine, histogram] = ta.macd(close, 2, 3, 2)
+            alertcondition(histogram > 0, title="CALL")
+        """.trimIndent())
+        assertTrue(conversion.errors.joinToString("\n"), conversion.supported)
+
+        val closes = listOf(1.0, 2.0, 3.0, 2.0, 4.0, 5.0)
+        val bars = closes.mapIndexed { index, close ->
+            PineOhlcBar(index + 1L, close, close + 1.0, close - 1.0, close)
+        }
+        val evaluator = PineScriptEvaluator(bars, conversion.compiledVariables)
+        fun number(name: String) =
+            (evaluator.evaluate(PineExpr.Identifier(name), 5) as PineValue.Number).value
+
+        assertEquals(0.43377057613168724, number("macdLine"), 1e-9)
+        assertEquals(0.37645747599451296, number("signalLine"), 1e-9)
+        assertEquals(0.05731310013717428, number("histogram"), 1e-9)
+        assertEquals(number("macdLine") - number("signalLine"), number("histogram"), 1e-9)
+    }
+
 }
