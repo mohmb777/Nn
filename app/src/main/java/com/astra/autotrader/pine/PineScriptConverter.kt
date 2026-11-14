@@ -115,8 +115,12 @@ object PineScriptConverter {
         if (kind == null) errors += "لم يتم العثور على indicator() أو strategy() في بداية سطر."
         val title = declaration?.let { Regex("""\(\s*"([^"]+)"""").find(it)?.groupValues?.get(1) }
 
-        if (Regex("""\b(request\.security|request\.seed|barmerge\.|lookahead\s*=\s*barmerge\.lookahead_on)""").containsMatchIn(source)) {
-            errors += "تم اكتشاف request.security أو lookahead؛ يجب رفضه لأن توقيت البيانات قد يسبب إعادة الرسم."
+        PineRiskAnalyzer.analyze(source).forEach { finding ->
+            val diagnostic = "السطر " + finding.line + ": " + finding.message
+            when (finding.severity) {
+                PineRiskSeverity.ERROR -> errors += diagnostic
+                PineRiskSeverity.WARNING -> warnings += diagnostic
+            }
         }
         if (Regex("""\b(for|while|switch|import|export)\b""").containsMatchIn(source)) {
             errors += "الحلقات وswitch والاستيراد/التصدير خارج نطاق المحلل الآمن الحالي."
@@ -124,12 +128,6 @@ object PineScriptConverter {
         if (Regex("""\b(strategy\.order|strategy\.close)\s*\(""").containsMatchIn(source)) {
             warnings += "تم العثور على أمر استراتيجية خارج النطاق المدعوم؛ لم يتم تحويله أو تنفيذه."
             errors += "strategy.order وstrategy.close غير مدعومين حالياً؛ استخدم فقط strategy.entry وstrategy.exit بالوسائط المعلنة في هذا المحوّل."
-        }
-        if (Regex("""\b(barstate\.isrealtime|timenow|calc_on_every_tick\s*=\s*true)""").containsMatchIn(source)) {
-            warnings += "تم اكتشاف اعتماد على التحديث اللحظي؛ قد تختلف الإشارة قبل إغلاق الشمعة. الاختبار الحالي يجب أن يستخدم شموعاً مغلقة."
-        }
-        if (Regex("""\[[^]]*]""").containsMatchIn(source) && !macdTuplePattern.containsMatchIn(source)) {
-            warnings += "فهرسة السلاسل [ ] غير مدعومة؛ لا يمكن ضمان تطابق توقيت الإشارة."
         }
 
         val statements = flattenSimpleIfBlocks(lines, errors)
