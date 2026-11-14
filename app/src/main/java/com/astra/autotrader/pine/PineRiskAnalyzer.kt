@@ -89,7 +89,7 @@ object PineRiskAnalyzer {
         rules.forEach { rule ->
             rule.pattern.findAll(codeOnly).forEach { match ->
                 val line = 1 + codeOnly.substring(0, match.range.first).count { it == '\n' }
-                val key = "\${rule.code}:\${line}"
+                val key = rule.code + ":" + line
                 findings.putIfAbsent(
                     key,
                     PineRiskFinding(line, rule.code, rule.severity, rule.message(match))
