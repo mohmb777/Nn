@@ -110,6 +110,10 @@ class PineScriptEvaluator(
             }
         }
         is PineExpr.Binary -> binary(expression.operator, eval(expression.left, index, visiting), eval(expression.right, index, visiting))
+        is PineExpr.HistoryReference -> {
+            val historicalIndex = index - expression.barsBack
+            if (historicalIndex < 0) null else eval(expression.source, historicalIndex, visiting)
+        }
         is PineExpr.Call -> call(expression, index, visiting)
     }
 
