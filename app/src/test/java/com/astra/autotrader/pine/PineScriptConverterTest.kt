@@ -566,4 +566,57 @@ class PineScriptConverterTest {
         assertEquals(number("macdLine") - number("signalLine"), number("histogram"), 1e-9)
     }
 
+
+    @Test fun supportsPositiveHistoricalReferencesAndWarmupNa() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("History reference")
+            previousClose = close[1]
+            alertcondition(close > previousClose, title="CALL")
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        assertTrue(result.warnings.any { it.contains("مرجع تاريخي موجب") })
+
+        val bars = listOf(
+            PineOhlcBar(1, 9.0, 10.0, 8.0, 10.0),
+            PineOhlcBar(2, 10.0, 12.0, 9.0, 11.0),
+            PineOhlcBar(3, 11.0, 13.0, 10.0, 12.0)
+        )
+        val evaluator = PineScriptEvaluator(bars, result.compiledVariables)
+        assertNull(evaluator.evaluate(PineExpr.Identifier("previousClose"), 0))
+        assertEquals(PineValue.Number(10.0), evaluator.evaluate(PineExpr.Identifier("previousClose"), 1))
+        assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 1).action)
+        assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 2).action)
+    }
+
+    @Test fun supportsHistoryOnComputedSeriesAndNestedFixedOffsets() {
+        val expression = PineExpressionParser.parse("ta.ema(close, 2)[1]")
+        val nested = PineExpressionParser.parse("close[1][1]")
+        val bars = listOf(
+            PineOhlcBar(1, 9.0, 10.0, 8.0, 10.0),
+            PineOhlcBar(2, 10.0, 12.0, 9.0, 12.0),
+            PineOhlcBar(3, 12.0, 13.0, 11.0, 13.0)
+        )
+        val evaluator = PineScriptEvaluator(bars, emptyMap())
+
+        assertNull(evaluator.evaluate(expression, 0))
+        assertEquals(10.0, (evaluator.evaluate(expression, 1) as PineValue.Number).value, 1e-9)
+        assertEquals(10.0, (evaluator.evaluate(nested, 2) as PineValue.Number).value, 1e-9)
+    }
+
+    @Test fun rejectsDynamicFractionalNegativeAndOversizedHistoryOffsets() {
+        val invalid = listOf(
+            "close[period]" to "عدداً صحيحاً ثابتاً",
+            "close[1.5]" to "دون كسور",
+            "close[-1]" to "سالبة",
+            "close[501]" to "الحد الآمن"
+        )
+        invalid.forEach { (source, expectedMessage) ->
+            val error = runCatching { PineExpressionParser.parse(source) }.exceptionOrNull()
+            assertTrue("$source should be rejected", error is PineParseException)
+            assertTrue("$source: ${error?.message}", error?.message?.contains(expectedMessage) == true)
+        }
+    }
+
 }
