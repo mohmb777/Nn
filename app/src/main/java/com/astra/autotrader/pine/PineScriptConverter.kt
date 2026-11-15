@@ -567,6 +567,7 @@ object PineScriptConverter {
         is PineExpr.Call -> listOf(expression.name) + expression.arguments.flatMap { collectCalls(it.value) }
         is PineExpr.Unary -> collectCalls(expression.operand)
         is PineExpr.Binary -> collectCalls(expression.left) + collectCalls(expression.right)
+        is PineExpr.HistoryReference -> collectCalls(expression.source)
         else -> emptyList()
     }
 
@@ -575,6 +576,7 @@ object PineScriptConverter {
         is PineExpr.Call -> expression.arguments.flatMap { collectIdentifiers(it.value) }
         is PineExpr.Unary -> collectIdentifiers(expression.operand)
         is PineExpr.Binary -> collectIdentifiers(expression.left) + collectIdentifiers(expression.right)
+        is PineExpr.HistoryReference -> collectIdentifiers(expression.source)
         else -> emptyList()
     }
 

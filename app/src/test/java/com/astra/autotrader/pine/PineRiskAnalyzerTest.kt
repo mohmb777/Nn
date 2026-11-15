@@ -92,7 +92,7 @@ class PineRiskAnalyzerTest {
             .all { it.severity == PineRiskSeverity.ERROR })
     }
 
-    @Test fun warnsForPositiveHistoryIndexAndLookaheadOffContext() {
+    @Test fun warnsThatPositiveHistoryReferencesNeedWarmupButAreSupported() {
         val source = """
             //@version=5
             indicator("History")
@@ -101,7 +101,11 @@ class PineRiskAnalyzerTest {
         """.trimIndent()
 
         val findings = PineRiskAnalyzer.analyze(source)
-        assertTrue(findings.any { it.code == "HISTORY_INDEX_UNSUPPORTED" && it.line == 3 })
+        val history = findings.single { it.code == "HISTORY_INDEX_WARMUP" }
+        assertEquals(3, history.line)
+        assertEquals(PineRiskSeverity.WARNING, history.severity)
+        assertTrue(history.message.contains("مدعوم"))
+        assertTrue(history.message.contains("فترة الإحماء"))
         assertTrue(findings.any { it.code == "LOOKAHEAD_OFF_CONTEXT" && it.line == 4 })
         assertTrue(findings.all { it.severity == PineRiskSeverity.WARNING })
     }
