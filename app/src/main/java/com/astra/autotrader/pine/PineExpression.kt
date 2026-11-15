@@ -115,6 +115,12 @@ object PineExpressionParser {
                     if (!match(Kind.RIGHT_BRACKET)) {
                         throw PineParseException("قوس إغلاق مفقود بعد فهرس الشمعة.")
                     }
+                    if (offsetExpression is PineExpr.Unary &&
+                        offsetExpression.operator == "-" &&
+                        offsetExpression.operand is PineExpr.NumberLiteral
+                    ) {
+                        throw PineParseException("الفهرسة التاريخية السالبة تطلب بيانات مستقبلية وهي مرفوضة.")
+                    }
                     val offsetValue = (offsetExpression as? PineExpr.NumberLiteral)?.value
                         ?: throw PineParseException("فهرس الشمعة يجب أن يكون عدداً صحيحاً ثابتاً؛ الفهارس المتغيرة غير مدعومة.")
                     if (!offsetValue.isFinite() || offsetValue < 0.0) {
