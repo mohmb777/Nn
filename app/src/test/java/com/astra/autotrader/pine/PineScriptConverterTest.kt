@@ -388,15 +388,15 @@ class PineScriptConverterTest {
         assertTrue(result.errors.any { it.contains("ta.supertrend") })
     }
 
-    @Test fun rejectsHistoryIndexingAndLookahead() {
+    @Test fun supportsHistoryIndexingButRejectsLookahead() {
         val history = PineScriptConverter.convert("""
             //@version=5
             indicator("History")
             previous = close[1]
             alertcondition(close > previous, title="CALL")
         """.trimIndent())
-        assertFalse(history.supported)
-        assertTrue(history.errors.any { it.contains("فهرسة الشموع") })
+        assertTrue(history.errors.joinToString("\n"), history.supported)
+        assertTrue(history.warnings.any { it.contains("مرجع تاريخي موجب") })
         val lookahead = PineScriptConverter.convert("""
             //@version=5
             indicator("Future")
