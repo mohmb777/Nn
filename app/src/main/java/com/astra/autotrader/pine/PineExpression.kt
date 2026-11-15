@@ -10,6 +10,8 @@ sealed interface PineExpr {
     data class Unary(val operator: String, val operand: PineExpr) : PineExpr
     data class Binary(val operator: String, val left: PineExpr, val right: PineExpr) : PineExpr
     data class Call(val name: String, val arguments: List<Argument>) : PineExpr
+    /** مرجع سلسلة تاريخي ثابت؛ barsBack=1 يعني قيمة الشمعة السابقة. */
+    data class HistoryReference(val source: PineExpr, val barsBack: Int) : PineExpr
     data class Argument(val name: String?, val value: PineExpr)
 }
 
@@ -20,7 +22,8 @@ class PineParseException(message: String) : IllegalArgumentException(message)
  * أي رمز أو تركيب غير معروف يُرفض بدلاً من تخمين معناه.
  */
 object PineExpressionParser {
-    private enum class Kind { NUMBER, STRING, IDENTIFIER, OPERATOR, LEFT_PAREN, RIGHT_PAREN, COMMA, END }
+    const val MAX_HISTORY_OFFSET = 500
+    private enum class Kind { NUMBER, STRING, IDENTIFIER, OPERATOR, LEFT_PAREN, RIGHT_PAREN, LEFT_BRACKET, RIGHT_BRACKET, COMMA, END }
     private data class Token(val kind: Kind, val text: String)
 
     fun parse(source: String): PineExpr {
@@ -75,6 +78,8 @@ object PineExpressionParser {
             }
             if (c == '(') { tokens += Token(Kind.LEFT_PAREN, "("); i++; continue }
             if (c == ')') { tokens += Token(Kind.RIGHT_PAREN, ")"); i++; continue }
+            if (c == '[') { tokens += Token(Kind.LEFT_BRACKET, "["); i++; continue }
+            if (c == ']') { tokens += Token(Kind.RIGHT_BRACKET, "]"); i++; continue }
             if (c == ',') { tokens += Token(Kind.COMMA, ","); i++; continue }
             val two = if (i + 1 < source.length) source.substring(i, i + 2) else ""
             if (two in setOf(">=", "<=", "==", "!=")) {
@@ -82,9 +87,6 @@ object PineExpressionParser {
             }
             if (c in setOf('+', '-', '*', '/', '%', '>', '<', '=')) {
                 tokens += Token(Kind.OPERATOR, c.toString()); i++; continue
-            }
-            if (c == '[' || c == ']') {
-                throw PineParseException("فهرسة الشموع [ ] غير مدعومة بعد؛ لا يمكن تحويل هذا التعبير بأمان.")
             }
             throw PineParseException("رمز غير مدعوم في التعبير: " + c)
         }
@@ -105,13 +107,39 @@ object PineExpressionParser {
 
         fun expression(minPrecedence: Int = 1): PineExpr {
             var left = prefix()
-            while (current().kind == Kind.OPERATOR || (current().kind == Kind.IDENTIFIER && current().text in setOf("and", "or"))) {
-                val op = current().text
-                val precedence = precedence(op)
-                if (precedence < minPrecedence) break
-                advance()
-                val right = expression(precedence + 1)
-                left = PineExpr.Binary(op, left, right)
+            while (true) {
+                // عامل التاريخ postfix وله أولوية أعلى من العمليات الحسابية والمنطقية.
+                if (current().kind == Kind.LEFT_BRACKET) {
+                    advance()
+                    val offsetExpression = expression()
+                    if (!match(Kind.RIGHT_BRACKET)) {
+                        throw PineParseException("قوس إغلاق مفقود بعد فهرس الشمعة.")
+                    }
+                    val offsetValue = (offsetExpression as? PineExpr.NumberLiteral)?.value
+                        ?: throw PineParseException("فهرس الشمعة يجب أن يكون عدداً صحيحاً ثابتاً؛ الفهارس المتغيرة غير مدعومة.")
+                    if (!offsetValue.isFinite() || offsetValue < 0.0) {
+                        throw PineParseException("الفهرسة التاريخية السالبة تطلب بيانات مستقبلية وهي مرفوضة.")
+                    }
+                    if (offsetValue % 1.0 != 0.0) {
+                        throw PineParseException("فهرس الشمعة يجب أن يكون عدداً صحيحاً دون كسور.")
+                    }
+                    if (offsetValue > MAX_HISTORY_OFFSET) {
+                        throw PineParseException("فهرس الشمعة يتجاوز الحد الآمن ($MAX_HISTORY_OFFSET).")
+                    }
+                    left = PineExpr.HistoryReference(left, offsetValue.toInt())
+                    continue
+                }
+
+                if (current().kind == Kind.OPERATOR || (current().kind == Kind.IDENTIFIER && current().text in setOf("and", "or"))) {
+                    val op = current().text
+                    val precedence = precedence(op)
+                    if (precedence < minPrecedence) break
+                    advance()
+                    val right = expression(precedence + 1)
+                    left = PineExpr.Binary(op, left, right)
+                } else {
+                    break
+                }
             }
             return left
         }
