@@ -99,7 +99,7 @@ object PineScriptConverter {
             return result()
         }
 
-        val lines = source.lines()
+        val lines = normalizeMultilineStatements(source.lines(), errors)
         val version = Regex("""(?m)^\s*//\s*@version=(\d+)\s*$""").find(source)?.groupValues?.get(1)?.toIntOrNull()
         if (version != 5 && version != 6) errors += "الإصدار المدعوم حالياً هو Pine Script v5/v6 فقط."
 
@@ -254,6 +254,100 @@ object PineScriptConverter {
     }
 
     /**
+     * يجمع الاستدعاءات والتعابير متعددة الأسطر عندما تبقى الأقواس مفتوحة.
+     * يحتفظ برقم السطر الأصلي، ويتجاهل // خارج النصوص فقط. لا يفسر أو ينفذ أي كود.
+     */
+    private fun normalizeMultilineStatements(
+        lines: List<String>,
+        errors: MutableList<String>
+    ): List<String> {
+        val normalized = MutableList(lines.size) { "" }
+        var index = 0
+
+        fun stripLineComment(line: String): String {
+            var inString = false
+            var escaped = false
+            var cursor = 0
+            while (cursor < line.length) {
+                val char = line[cursor]
+                if (inString) {
+                    if (escaped) escaped = false
+                    else if (char == '\\') escaped = true
+                    else if (char == '"') inString = false
+                } else {
+                    if (char == '"') inString = true
+                    else if (char == '/' && line.getOrNull(cursor + 1) == '/') {
+                        return line.substring(0, cursor)
+                    }
+                }
+                cursor++
+            }
+            return line
+        }
+
+        fun updateDepths(text: String, initialRound: Int, initialSquare: Int): Pair<Int, Int> {
+            var round = initialRound
+            var square = initialSquare
+            var inString = false
+            var escaped = false
+            text.forEach { char ->
+                if (inString) {
+                    if (escaped) escaped = false
+                    else if (char == '\\') escaped = true
+                    else if (char == '"') inString = false
+                } else {
+                    when (char) {
+                        '"' -> inString = true
+                        '(' -> round++
+                        ')' -> round--
+                        '[' -> square++
+                        ']' -> square--
+                    }
+                }
+            }
+            return round to square
+        }
+
+        while (index < lines.size) {
+            val raw = lines[index]
+            val indentation = raw.takeWhile { it == ' ' || it == '\t' }
+            val firstCode = stripLineComment(raw).trim()
+            if (firstCode.isEmpty()) {
+                index++
+                continue
+            }
+
+            val statement = StringBuilder(indentation).append(firstCode)
+            var depths = updateDepths(firstCode, 0, 0)
+            var roundDepth = depths.first
+            var squareDepth = depths.second
+            var cursor = index
+
+            while ((roundDepth > 0 || squareDepth > 0) && cursor + 1 < lines.size) {
+                cursor++
+                val continuation = stripLineComment(lines[cursor]).trim()
+                if (continuation.isNotEmpty()) {
+                    statement.append(' ').append(continuation)
+                    depths = updateDepths(continuation, roundDepth, squareDepth)
+                    roundDepth = depths.first
+                    squareDepth = depths.second
+                }
+            }
+
+            if (roundDepth > 0 || squareDepth > 0) {
+                errors += "السطر " + (index + 1) + ": استدعاء متعدد الأسطر غير مكتمل؛ يوجد قوس أو فهرس تاريخي غير مغلق."
+            }
+            if (roundDepth < 0 || squareDepth < 0) {
+                errors += "السطر " + (index + 1) + ": قوس إغلاق زائد في العبارة؛ لم تُحوّل العبارة."
+            }
+
+            normalized[index] = statement.toString()
+            index = cursor + 1
+        }
+        return normalized
+    }
+
+    /**
      * يحوّل كتل if/else ذات عبارة واحدة إلى عبارات محروسة.
      * لا يسمح بالتداخل أو تعدد العبارات؛ لا تُنفذ الكتل بل تُترجم شروطها إلى AST لاحقاً.
      */
@@ -263,7 +357,7 @@ object PineScriptConverter {
     ): List<SourceStatement> {
         val output = mutableListOf<SourceStatement>()
 
-        fun clean(index: Int): String = lines[index].substringBefore("//").trim()
+        fun clean(index: Int): String = lines[index].trim()
         fun indentation(index: Int): Int =
             lines[index].takeWhile { it == ' ' || it == '\t' }
                 .fold(0) { total, char -> total + if (char == '\t') 4 else 1 }
