@@ -619,4 +619,92 @@ class PineScriptConverterTest {
         }
     }
 
+
+    @Test fun supportsMultilineIndicatorExpressionsAndCallsWithoutBreakingStringComments() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator(
+                "Multiline EMA",
+                overlay=true
+            )
+            fast = ta.ema(
+                close, // source comment
+                2
+            )
+            slow = ta.sma(
+                close,
+                2
+            )
+            alertcondition(
+                ta.crossover(fast, slow),
+                title="CALL",
+                message="https://example.test/path//still-text"
+            )
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        assertEquals("Multiline EMA", result.title)
+        assertEquals(2, result.compiledVariables.size)
+        assertEquals(1, result.signals.size)
+        assertEquals(PineSignalDirection.CALL, result.signals.single().direction)
+        assertNotNull(result.signals.single().compiledExpression)
+    }
+
+    @Test fun supportsMultilineMacdTupleAndGuardedStrategyCalls() {
+        val indicator = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Multiline MACD")
+            [macdLine, signalLine, histLine] = ta.macd(
+                close,
+                12,
+                26,
+                9
+            )
+            alertcondition(
+                ta.crossover(macdLine, signalLine),
+                title="CALL"
+            )
+        """.trimIndent())
+        assertTrue(indicator.errors.joinToString("\n"), indicator.supported)
+        assertEquals(3, indicator.compiledVariables.size)
+        assertEquals(1, indicator.signals.size)
+
+        val strategy = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Multiline strategy")
+            if close > open
+                strategy.entry(
+                    "Long",
+                    strategy.long,
+                    when=close > open
+                )
+            strategy.exit(
+                "Long exit",
+                from_entry="Long",
+                stop=close - 1,
+                limit=close + 2
+            )
+        """.trimIndent())
+        assertTrue(strategy.errors.joinToString("\n"), strategy.supported)
+        assertEquals(1, strategy.entries.size)
+        assertEquals(1, strategy.exits.size)
+        assertEquals("Long", strategy.entries.single().id)
+        assertEquals("Long", strategy.exits.single().fromEntry)
+    }
+
+    @Test fun rejectsUnclosedMultilineCallWithOriginalStartLine() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Broken")
+            alertcondition(
+                close > open,
+                title="CALL"
+        """.trimIndent())
+
+        assertFalse(result.supported)
+        assertTrue(result.errors.any {
+            it.contains("السطر 3") && it.contains("استدعاء متعدد الأسطر غير مكتمل")
+        })
+    }
+
 }
