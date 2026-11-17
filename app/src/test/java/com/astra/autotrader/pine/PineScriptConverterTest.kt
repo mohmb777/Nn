@@ -73,6 +73,85 @@ class PineScriptConverterTest {
         assertEquals(PineSignalAction.CALL, signal.action)
     }
 
+    @Test fun supportsNamedArgumentsForMovingAveragesAndCrossovers() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Named arguments")
+            fast = ta.ema(source=close, length=2)
+            slow = ta.sma(source=close, length=3)
+            alertcondition(ta.crossover(source1=fast, source2=slow), title="CALL")
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\\n"), result.supported)
+        val bars = listOf(10.0, 12.0, 9.0, 13.0).mapIndexed { index, close ->
+            PineOhlcBar(index.toLong() + 1, close, close, close, close)
+        }
+        assertEquals(
+            PineSignalAction.CALL,
+            PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 3).action
+        )
+    }
+
+    @Test fun supportsNamedArgumentsForMacdTuple() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Named MACD")
+            [macdLine, signalLine, histLine] = ta.macd(source=close, fastlen=2, slowlen=3, siglen=2)
+            alertcondition(macdLine > signalLine, title="CALL")
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\\n"), result.supported)
+        val bars = (1L..5L).map { n ->
+            val close = n.toDouble()
+            PineOhlcBar(n, close, close, close, close)
+        }
+        assertEquals(
+            PineSignalAction.CALL,
+            PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 4).action
+        )
+    }
+
+    @Test fun rejectsInvalidNamedTaArgumentsInsteadOfIgnoringThem() {
+        val unknown = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Unknown named argument")
+            average = ta.ema(close, period=2)
+            alertcondition(average > open, title="CALL")
+        """.trimIndent())
+        assertFalse(unknown.supported)
+        assertTrue(unknown.errors.any { it.contains("وسائط مسمّاة غير مدعومة") })
+        assertTrue(unknown.errors.any { it.contains("length") })
+
+        val duplicate = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Duplicate named argument")
+            average = ta.ema(close, length=2, source=open)
+            alertcondition(average > close, title="CALL")
+        """.trimIndent())
+        assertFalse(duplicate.supported)
+        assertTrue(duplicate.errors.any { it.contains("مكرر موضعياً ومسمّى") })
+    }
+
+    @Test fun rejectsReassignmentAndStandaloneStatementsThatWouldBeIgnored() {
+        val reassignment = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Reassignment")
+            fast = close
+            fast := ta.ema(close, 2)
+            alertcondition(fast > open, title="CALL")
+        """.trimIndent())
+        assertFalse(reassignment.supported)
+        assertTrue(reassignment.errors.any { it.contains("صيغة عبارة Pine غير مدعومة") && it.contains(":=") })
+
+        val standalone = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Standalone")
+            close > open
+        """.trimIndent())
+        assertFalse(standalone.supported)
+        assertTrue(standalone.errors.any { it.contains("صيغة عبارة Pine غير مدعومة") })
+    }
+
     @Test fun genericInputDefaultIsEvaluated() {
         val result = PineScriptConverter.convert("""
             //@version=5
