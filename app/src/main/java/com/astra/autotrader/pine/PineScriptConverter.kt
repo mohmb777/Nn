@@ -63,6 +63,29 @@ object PineScriptConverter {
         "math.abs", "math.min", "math.max"
     )
 
+    private data class CallSignature(
+        val positionalNames: List<String>,
+        val requiredNames: Set<String> = positionalNames.toSet()
+    )
+
+    private val expressionCalls = setOf(
+        "input", "input.int", "input.float", "input.bool", "input.string", "input.source",
+        "ta.ema", "ta.sma", "ta.rsi", "ta.crossover", "ta.crossunder",
+        "math.abs", "math.min", "math.max"
+    )
+
+    private val expressionCallSignatures = mapOf(
+        "ta.ema" to CallSignature(listOf("source", "length")),
+        "ta.sma" to CallSignature(listOf("source", "length")),
+        "ta.rsi" to CallSignature(listOf("source", "length")),
+        "ta.crossover" to CallSignature(listOf("source1", "source2")),
+        "ta.crossunder" to CallSignature(listOf("source1", "source2")),
+        "ta.macd" to CallSignature(listOf("source", "fastlen", "slowlen", "siglen")),
+        "math.abs" to CallSignature(listOf("x")),
+        "math.min" to CallSignature(listOf("number1", "number2")),
+        "math.max" to CallSignature(listOf("number1", "number2"))
+    )
+
     private val callPattern = Regex("""([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\(""")
     private val declarationPattern = Regex("""^\s*(?:var\s+)?(?:(?:float|int|bool|string)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$""")
     private val macdTuplePattern = Regex("""^\s*\[\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*]\s*=\s*ta\.macd\s*\((.*)\)\s*$""")
@@ -150,12 +173,20 @@ object PineScriptConverter {
                 if (args.size != 4) {
                     errors += "السطر " + lineNumber + ": ta.macd يتطلب المصدر وطولي EMA السريع والبطيء وطول خط الإشارة."
                 } else {
-                    val parsedArgs = args.mapNotNull { parseExpression(it, lineNumber, errors) }
+                    val parsedArgs = args.mapNotNull { raw ->
+                        val named = splitNamedArgument(raw)
+                        val value = parseExpression(named?.second ?: raw, lineNumber, errors)
+                        value?.let { PineExpr.Argument(named?.first, it) }
+                    }
                     if (parsedArgs.size == 4) {
-                        val components = listOf("ta.macd.line", "ta.macd.signal", "ta.macd.histogram")
-                        names.forEachIndexed { componentIndex, name ->
-                            variables[name] = PineExpr.Call(components[componentIndex], parsedArgs.map { PineExpr.Argument(null, it) })
-                            declarations += name + " = " + components[componentIndex] + "(...)"
+                        val errorsBeforeValidation = errors.size
+                        validateCallArguments("ta.macd", parsedArgs, lineNumber, errors)
+                        if (errors.size == errorsBeforeValidation) {
+                            val components = listOf("ta.macd.line", "ta.macd.signal", "ta.macd.histogram")
+                            names.forEachIndexed { componentIndex, name ->
+                                variables[name] = PineExpr.Call(components[componentIndex], parsedArgs)
+                                declarations += name + " = " + components[componentIndex] + "(...)"
+                            }
                         }
                     }
                 }
@@ -215,6 +246,10 @@ object PineScriptConverter {
                     variables[name] = compiled
                     declarations += name + " = " + expressionText
                 }
+            } else if (calls.none { it !in allowedCalls } &&
+                calls.none { it == "strategy.close" || it == "strategy.order" }
+            ) {
+                errors += "السطر " + lineNumber + ": صيغة عبارة Pine غير مدعومة أو لا يمكن تمثيلها بأمان: " + line.take(120)
             }
         }
 
@@ -644,24 +679,62 @@ object PineScriptConverter {
     private fun parseExpression(source: String, line: Int, errors: MutableList<String>): PineExpr? {
         return try {
             val expression = PineExpressionParser.parse(source)
-            val unsupported = collectCalls(expression).firstOrNull { call ->
-                call !in allowedCalls && call !in setOf("ta.macd.line", "ta.macd.signal", "ta.macd.histogram")
-            }
+            val calls = collectCallNodes(expression)
+            val unsupported = calls.firstOrNull { it.name !in expressionCalls }
             if (unsupported != null) {
-                errors += "السطر " + line + ": الدالة غير المدعومة داخل التعبير: " + unsupported
+                errors += "السطر " + line + ": الدالة غير المدعومة داخل التعبير: " + unsupported.name
                 null
-            } else expression
+            } else {
+                calls.forEach { validateCallArguments(it.name, it.arguments, line, errors) }
+                expression
+            }
         } catch (error: PineParseException) {
             errors += "السطر " + line + ": تعذر تحليل التعبير: " + error.message
             null
         }
     }
 
-    private fun collectCalls(expression: PineExpr): List<String> = when (expression) {
-        is PineExpr.Call -> listOf(expression.name) + expression.arguments.flatMap { collectCalls(it.value) }
-        is PineExpr.Unary -> collectCalls(expression.operand)
-        is PineExpr.Binary -> collectCalls(expression.left) + collectCalls(expression.right)
-        is PineExpr.HistoryReference -> collectCalls(expression.source)
+    private fun validateCallArguments(
+        functionName: String,
+        arguments: List<PineExpr.Argument>,
+        line: Int,
+        errors: MutableList<String>
+    ) {
+        val signature = expressionCallSignatures[functionName] ?: return
+        val positional = arguments.filter { it.name == null }
+        val named = arguments.mapNotNull { it.name }
+        val duplicateNames = named.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+        if (duplicateNames.isNotEmpty()) {
+            errors += "السطر " + line + ": وسائط مسمّاة مكررة في " + functionName + ": " + duplicateNames.sorted().joinToString(", ")
+        }
+        if (positional.size > signature.positionalNames.size) {
+            errors += "السطر " + line + ": عدد الوسائط الموضعية غير صالح للدالة " + functionName + "."
+        }
+        val firstNamed = arguments.indexOfFirst { it.name != null }
+        if (firstNamed >= 0 && arguments.drop(firstNamed + 1).any { it.name == null }) {
+            errors += "السطر " + line + ": لا يمكن وضع وسيط موضعي بعد وسيط مسمّى في " + functionName + "."
+        }
+        val positionalNames = signature.positionalNames.take(positional.size)
+        val duplicated = positionalNames.filter { it in named }
+        if (duplicated.isNotEmpty()) {
+            errors += "السطر " + line + ": الوسيط مكرر موضعياً ومسمّى في " + functionName + ": " + duplicated.joinToString(", ")
+        }
+        val unknown = named.toSet() - signature.positionalNames.toSet()
+        if (unknown.isNotEmpty()) {
+            errors += "السطر " + line + ": وسائط مسمّاة غير مدعومة في " + functionName + ": " + unknown.sorted().joinToString(", ")
+        }
+        val provided = positionalNames.toSet() + named.toSet()
+        val missing = signature.requiredNames - provided
+        if (missing.isNotEmpty()) {
+            errors += "السطر " + line + ": وسائط مطلوبة مفقودة في " + functionName + ": " + missing.sorted().joinToString(", ")
+        }
+    }
+
+    private fun collectCallNodes(expression: PineExpr): List<PineExpr.Call> = when (expression) {
+        is PineExpr.Call -> listOf(expression) + expression.arguments.flatMap { collectCallNodes(it.value) }
+        is PineExpr.Unary -> collectCallNodes(expression.operand)
+        is PineExpr.Binary -> collectCallNodes(expression.left) + collectCallNodes(expression.right)
+        is PineExpr.HistoryReference -> collectCallNodes(expression.source)
         else -> emptyList()
     }
 
