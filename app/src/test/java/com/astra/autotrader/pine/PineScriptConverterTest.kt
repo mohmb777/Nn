@@ -92,6 +92,24 @@ class PineScriptConverterTest {
         )
     }
 
+    @Test fun supportsNamedArgumentsForMathFunctions() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Named math")
+            distance = math.abs(number=close - open)
+            lower = math.min(number0=distance, number1=2)
+            bounded = math.max(number0=lower, number1=1)
+            alertcondition(bounded == 2, title="CALL")
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\\n"), result.supported)
+        val bars = listOf(PineOhlcBar(1, 1.0, 4.0, 1.0, 4.0))
+        assertEquals(
+            PineSignalAction.CALL,
+            PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 0).action
+        )
+    }
+
     @Test fun supportsNamedArgumentsForMacdTuple() {
         val result = PineScriptConverter.convert("""
             //@version=5
