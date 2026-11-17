@@ -146,13 +146,13 @@ class PineScriptEvaluator(
         return when (call.name) {
             "input", "input.int", "input.float", "input.bool", "input.string", "input.source" ->
                 arg(0, "defval")?.let { eval(it, index, visiting) }
-            "math.abs" -> numberArg(0)?.let { PineValue.Number(abs(it)) }
+            "math.abs" -> numberArg(0, "number")?.let { PineValue.Number(abs(it)) }
             "math.min" -> {
-                val a = numberArg(0); val b = numberArg(1)
+                val a = numberArg(0, "number0"); val b = numberArg(1, "number1")
                 if (a != null && b != null) PineValue.Number(min(a, b)) else null
             }
             "math.max" -> {
-                val a = numberArg(0); val b = numberArg(1)
+                val a = numberArg(0, "number0"); val b = numberArg(1, "number1")
                 if (a != null && b != null) PineValue.Number(max(a, b)) else null
             }
             "ta.ema", "ta.sma", "ta.rsi" -> {
