@@ -156,8 +156,8 @@ class PineScriptEvaluator(
                 if (a != null && b != null) PineValue.Number(max(a, b)) else null
             }
             "ta.ema", "ta.sma", "ta.rsi" -> {
-                val source = arg(0) ?: return null
-                val length = numberArg(1)?.toInt() ?: return null
+                val source = arg(0, "source") ?: return null
+                val length = numberArg(1, "length")?.toInt() ?: return null
                 if (length <= 0 || length > 500) return null
                 val values = (0..index).map { i -> eval(source, i, visiting).numberOrNull() }
                 val result = when (call.name) {
@@ -168,8 +168,8 @@ class PineScriptEvaluator(
                 result.getOrNull(index)?.takeIf { it.isFinite() }?.let { PineValue.Number(it) }
             }
             "ta.crossover", "ta.crossunder" -> {
-                val left = arg(0) ?: return null
-                val right = arg(1) ?: return null
+                val left = arg(0, "source1") ?: return null
+                val right = arg(1, "source2") ?: return null
                 if (index == 0) return PineValue.Boolean(false)
                 val currentLeft = eval(left, index, visiting).numberOrNull() ?: return null
                 val currentRight = eval(right, index, visiting).numberOrNull() ?: return null
@@ -183,10 +183,10 @@ class PineScriptEvaluator(
                 PineValue.Boolean(crossed)
             }
             "ta.macd.line", "ta.macd.signal", "ta.macd.histogram" -> {
-                val source = arg(0) ?: return null
-                val fast = numberArg(1)?.toInt() ?: return null
-                val slow = numberArg(2)?.toInt() ?: return null
-                val signal = numberArg(3)?.toInt() ?: return null
+                val source = arg(0, "source") ?: return null
+                val fast = numberArg(1, "fastlen")?.toInt() ?: return null
+                val slow = numberArg(2, "slowlen")?.toInt() ?: return null
+                val signal = numberArg(3, "siglen")?.toInt() ?: return null
                 if (fast <= 0 || slow <= fast || signal <= 0 || slow > 500 || signal > 500) return null
                 val sourceValues = (0..index).map { i -> eval(source, i, visiting).numberOrNull() }
                 val fastValues = ema(sourceValues, fast)
