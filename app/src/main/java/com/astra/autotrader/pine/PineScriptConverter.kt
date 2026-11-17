@@ -81,9 +81,9 @@ object PineScriptConverter {
         "ta.crossover" to CallSignature(listOf("source1", "source2")),
         "ta.crossunder" to CallSignature(listOf("source1", "source2")),
         "ta.macd" to CallSignature(listOf("source", "fastlen", "slowlen", "siglen")),
-        "math.abs" to CallSignature(listOf("x")),
-        "math.min" to CallSignature(listOf("number1", "number2")),
-        "math.max" to CallSignature(listOf("number1", "number2"))
+        "math.abs" to CallSignature(listOf("number")),
+        "math.min" to CallSignature(listOf("number0", "number1")),
+        "math.max" to CallSignature(listOf("number0", "number1"))
     )
 
     private val callPattern = Regex("""([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\(""")
