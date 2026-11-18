@@ -134,7 +134,7 @@ object PineStrategyReplayEngine {
             previousTime = bar.time
         }
 
-        val evaluator = PineScriptEvaluator(dataset.bars, conversion.compiledVariables)
+        val evaluator = PineScriptEvaluator(dataset.bars, conversion.compiledVariables, conversion.inputs, conversion.inputValues)
         val trades = mutableListOf<PineStrategyClosedTrade>()
         var pending: PendingEntry? = null
         var position: ActivePosition? = null
