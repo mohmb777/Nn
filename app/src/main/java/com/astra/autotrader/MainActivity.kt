@@ -419,7 +419,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
             if (converted.inputs.isNotEmpty()) {
                 item {
                     InfoCard(
-                        "مدخلات المؤشر القابلة للتعديل",
+                        "مدخلات Pine",
                         "تُطبّق هذه القيم على إعادة الاختبار والمحاكاة المحلية فقط؛ القيم الافتراضية تبقى كما في Pine ما لم تغيّرها."
                     )
                 }
