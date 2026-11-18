@@ -953,7 +953,22 @@ class PineScriptConverterTest {
         """.trimIndent())
 
         assertFalse(result.supported)
-        assertTrue(result.errors.any { it.contains("options") && it.contains("غير مدعومة") })
+        assertTrue(result.errors.any { it.contains("options") && it.contains("غير مدعوم") })
+    }
+
+
+    @Test fun genericNumericInputsPreserveIntegerAndFloatLiteralTypes() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Generic numeric inputs")
+            integerPeriod = input(2, "Integer period")
+            floatFactor = input(2.0, "Float factor")
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\\n"), result.supported)
+        assertEquals(PineScriptConverter.InputType.INTEGER, result.inputs.single { it.name == "integerPeriod" }.type)
+        assertEquals(PineScriptConverter.InputType.FLOAT, result.inputs.single { it.name == "floatFactor" }.type)
     }
 
 }
