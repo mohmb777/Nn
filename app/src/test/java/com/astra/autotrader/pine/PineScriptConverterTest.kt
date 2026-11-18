@@ -910,4 +910,50 @@ class PineScriptConverterTest {
         assertTrue(invalid.errors.any { it.contains("القيمة الافتراضية") && it.contains("أقل") })
     }
 
+
+    @Test fun stringInputOverrideChangesStringComparisonCondition() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("String input")
+            mode = input.string("CALL", "Mode")
+            alertcondition(mode == "CALL", title="CALL")
+        """.trimIndent())
+        assertTrue(result.errors.joinToString("\\n"), result.supported)
+        val bars = listOf(PineOhlcBar(1, 10.0, 11.0, 9.0, 10.5))
+        assertEquals(PineSignalAction.CALL, PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 0).action)
+
+        val putMode = result.copy(inputValues = mapOf("mode" to PineValue.Text("PUT")))
+        assertEquals(
+            PineSignalAction.WAIT,
+            PineScriptEvaluator(bars, putMode.compiledVariables, putMode.inputs, putMode.inputValues)
+                .signalAt(putMode, 0).action
+        )
+    }
+
+    @Test fun genericInputCanRepresentAnOhlcSourceWithoutMakingItEditable() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Generic source input")
+            source = input(close, "Source")
+            alertcondition(source > open, title="CALL")
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\\n"), result.supported)
+        assertEquals(PineScriptConverter.InputType.SOURCE, result.inputs.single().type)
+        assertEquals("close", result.inputs.single().sourceExpression)
+        assertTrue(result.warnings.any { it.contains("مصدر") })
+    }
+
+    @Test fun rejectsStringInputOptionsRatherThanIgnoringTheDropdown() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("String options")
+            mode = input.string("CALL", "Mode", options=["CALL", "PUT"])
+            alertcondition(mode == "CALL", title="CALL")
+        """.trimIndent())
+
+        assertFalse(result.supported)
+        assertTrue(result.errors.any { it.contains("options") && it.contains("غير مدعومة") })
+    }
+
 }
