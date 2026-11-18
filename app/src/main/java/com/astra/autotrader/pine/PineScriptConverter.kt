@@ -119,11 +119,11 @@ object PineScriptConverter {
     )
 
     private val expressionCallSignatures = mapOf(
-        "input" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
+        "input" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group"), setOf("defval")),
         "input.int" to CallSignature(listOf("defval", "title", "minval", "maxval", "step", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
         "input.float" to CallSignature(listOf("defval", "title", "minval", "maxval", "step", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
         "input.bool" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
-        "input.string" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
+        "input.string" to CallSignature(listOf("defval", "title", "options", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
         "input.source" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
         "ta.ema" to CallSignature(listOf("source", "length")),
         "ta.sma" to CallSignature(listOf("source", "length")),
@@ -760,6 +760,12 @@ object PineScriptConverter {
         }
 
         val startErrors = errors.size
+        if (call.name == "input.string" &&
+            (call.arguments.any { it.name == "options" } || positional.size > 2)
+        ) {
+            errors += "السطر " + line + ": قوائم options في input.string غير مدعومة حالياً؛ احذف options أو استخدم قيمة نصية ثابتة."
+            return null
+        }
         val defaultExpression = argument("defval", 0)
         if (defaultExpression == null) {
             errors += "السطر " + line + ": input يحتاج قيمة افتراضية ثابتة في defval."
@@ -783,7 +789,11 @@ object PineScriptConverter {
             else -> when (defaultExpression) {
                 is PineExpr.NumberLiteral -> if (defaultExpression.value % 1.0 == 0.0) InputType.INTEGER else InputType.FLOAT
                 is PineExpr.StringLiteral -> InputType.STRING
-                is PineExpr.Identifier -> if (defaultExpression.name == "true" || defaultExpression.name == "false") InputType.BOOLEAN else null
+                is PineExpr.Identifier -> when {
+                    defaultExpression.name == "true" || defaultExpression.name == "false" -> InputType.BOOLEAN
+                    defaultExpression.name in setOf("open", "high", "low", "close", "volume") -> InputType.SOURCE
+                    else -> null
+                }
                 else -> null
             }
         }
@@ -821,6 +831,9 @@ object PineScriptConverter {
         val minValue = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("minval", 2) else null
         val maxValue = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("maxval", 3) else null
         val step = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("step", 4) else null
+        if (type == InputType.INTEGER && listOfNotNull(minValue, maxValue, step).any { it % 1.0 != 0.0 }) {
+            errors += "السطر " + line + ": minval وmaxval وstep في input.int يجب أن تكون أعداداً صحيحة."
+        }
         if (minValue != null && maxValue != null && minValue > maxValue) {
             errors += "السطر " + line + ": minval لا يجوز أن يتجاوز maxval في " + call.name + "."
         }
