@@ -7,6 +7,46 @@ package com.astra.autotrader.pine
 object PineScriptConverter {
     enum class ScriptKind { INDICATOR, STRATEGY }
 
+    enum class InputType { INTEGER, FLOAT, BOOLEAN, STRING, SOURCE }
+
+    data class InputDefinition(
+        val name: String,
+        val title: String,
+        val type: InputType,
+        val defaultValue: PineValue?,
+        val minValue: Double? = null,
+        val maxValue: Double? = null,
+        val step: Double? = null,
+        val sourceExpression: String? = null,
+        val sourceLine: Int
+    ) {
+        fun validationError(value: PineValue): String? = when (type) {
+            InputType.INTEGER -> {
+                val number = (value as? PineValue.Number)?.value
+                    ?: return "القيمة يجب أن تكون عدداً صحيحاً."
+                when {
+                    !number.isFinite() || number % 1.0 != 0.0 -> "القيمة يجب أن تكون عدداً صحيحاً محدوداً."
+                    minValue != null && number < minValue -> "القيمة أقل من الحد الأدنى $minValue."
+                    maxValue != null && number > maxValue -> "القيمة أعلى من الحد الأقصى $maxValue."
+                    else -> null
+                }
+            }
+            InputType.FLOAT -> {
+                val number = (value as? PineValue.Number)?.value
+                    ?: return "القيمة يجب أن تكون رقمية."
+                when {
+                    !number.isFinite() -> "القيمة يجب أن تكون رقماً محدوداً."
+                    minValue != null && number < minValue -> "القيمة أقل من الحد الأدنى $minValue."
+                    maxValue != null && number > maxValue -> "القيمة أعلى من الحد الأقصى $maxValue."
+                    else -> null
+                }
+            }
+            InputType.BOOLEAN -> if (value is PineValue.Boolean) null else "القيمة يجب أن تكون منطقية."
+            InputType.STRING -> if (value is PineValue.Text) null else "القيمة يجب أن تكون نصاً."
+            InputType.SOURCE -> "input.source ثابت حالياً ولا يقبل تعديلاً من واجهة المحوّل."
+        }
+    }
+
     data class SignalRule(
         val name: String,
         val expression: String,
@@ -52,7 +92,9 @@ object PineScriptConverter {
         val warnings: List<String>,
         val errors: List<String>,
         val supported: Boolean,
-        val compiledVariables: Map<String, PineExpr>
+        val compiledVariables: Map<String, PineExpr>,
+        val inputs: List<InputDefinition> = emptyList(),
+        val inputValues: Map<String, PineValue> = emptyMap()
     )
 
     private val allowedCalls = setOf(
@@ -75,6 +117,12 @@ object PineScriptConverter {
     )
 
     private val expressionCallSignatures = mapOf(
+        "input" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
+        "input.int" to CallSignature(listOf("defval", "title", "minval", "maxval", "step", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
+        "input.float" to CallSignature(listOf("defval", "title", "minval", "maxval", "step", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
+        "input.bool" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
+        "input.string" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
+        "input.source" to CallSignature(listOf("defval", "title", "tooltip", "inline", "group", "confirm", "display"), setOf("defval")),
         "ta.ema" to CallSignature(listOf("source", "length")),
         "ta.sma" to CallSignature(listOf("source", "length")),
         "ta.rsi" to CallSignature(listOf("source", "length")),
@@ -103,6 +151,7 @@ object PineScriptConverter {
         val signals = mutableListOf<SignalRule>()
         val entries = mutableListOf<EntryRule>()
         val exits = mutableListOf<ExitRule>()
+        val inputs = mutableListOf<InputDefinition>()
         val variables = linkedMapOf<String, PineExpr>()
 
         fun result(
@@ -111,7 +160,7 @@ object PineScriptConverter {
             version: Int? = null
         ) = Conversion(kind, title, version, declarations.toList(), signals.toList(),
             entries.toList(), exits.toList(), warnings.distinct(), errors.distinct(),
-            errors.isEmpty(), variables.toMap())
+            errors.isEmpty(), variables.toMap(), inputs.toList(), emptyMap())
 
         if (source.isBlank()) {
             errors += "أدخل كود Pine Script أولاً."
@@ -241,10 +290,21 @@ object PineScriptConverter {
             if (assignment != null) {
                 val name = assignment.groupValues[1]
                 val expressionText = assignment.groupValues[2].trim()
+                val errorsBeforeExpression = errors.size
                 val compiled = parseExpression(expressionText, lineNumber, errors)
                 if (compiled != null) {
                     variables[name] = compiled
                     declarations += name + " = " + expressionText
+                    if (compiled is PineExpr.Call && compiled.name in inputCalls && errors.size == errorsBeforeExpression) {
+                        val input = parseInputDefinition(name, compiled, lineNumber, errors, warnings)
+                        if (input != null) {
+                            if (inputs.any { it.name == name }) {
+                                errors += "السطر " + lineNumber + ": تعريف input مكرر للمتغير " + name + "."
+                            } else {
+                                inputs += input
+                            }
+                        }
+                    }
                 }
             } else if (calls.none { it !in allowedCalls } &&
                 calls.none { it == "strategy.close" || it == "strategy.order" }
@@ -674,6 +734,102 @@ object PineScriptConverter {
         if ((stopText != null && stop == null) || (limitText != null && limit == null) ||
             (lossText != null && loss == null) || (profitText != null && profit == null)) return
         exits += ExitRule(id, fromEntry, line, stopText, stop, limitText, limit, lossText, loss, profitText, profit)
+    }
+
+    private val inputCalls = setOf("input", "input.int", "input.float", "input.bool", "input.string", "input.source")
+
+    private fun parseInputDefinition(
+        name: String,
+        call: PineExpr.Call,
+        line: Int,
+        errors: MutableList<String>,
+        warnings: MutableList<String>
+    ): InputDefinition? {
+        val positional = call.arguments.filter { it.name == null }.map { it.value }
+        fun argument(key: String, position: Int): PineExpr? =
+            call.arguments.firstOrNull { it.name == key }?.value ?: positional.getOrNull(position)
+        fun numberArgument(key: String, position: Int): Double? {
+            val expression = argument(key, position) ?: return null
+            val value = (expression as? PineExpr.NumberLiteral)?.value
+            if (value == null || !value.isFinite()) {
+                errors += "السطر " + line + ": وسيط " + key + " في " + call.name + " يجب أن يكون رقماً ثابتاً."
+            }
+            return value
+        }
+
+        val startErrors = errors.size
+        val defaultExpression = argument("defval", 0)
+        if (defaultExpression == null) {
+            errors += "السطر " + line + ": input يحتاج قيمة افتراضية ثابتة في defval."
+            return null
+        }
+        val titleExpression = argument("title", 1)
+        val title = when (titleExpression) {
+            null -> name
+            is PineExpr.StringLiteral -> titleExpression.value
+            else -> {
+                errors += "السطر " + line + ": title في " + call.name + " يجب أن يكون نصاً ثابتاً."
+                name
+            }
+        }
+        val type = when (call.name) {
+            "input.int" -> InputType.INTEGER
+            "input.float" -> InputType.FLOAT
+            "input.bool" -> InputType.BOOLEAN
+            "input.string" -> InputType.STRING
+            "input.source" -> InputType.SOURCE
+            else -> when (defaultExpression) {
+                is PineExpr.NumberLiteral -> if (defaultExpression.value % 1.0 == 0.0) InputType.INTEGER else InputType.FLOAT
+                is PineExpr.StringLiteral -> InputType.STRING
+                is PineExpr.Identifier -> if (defaultExpression.name == "true" || defaultExpression.name == "false") InputType.BOOLEAN else null
+                else -> null
+            }
+        }
+        if (type == null) {
+            errors += "السطر " + line + ": نوع input العام غير قابل للتحديد من قيمة افتراضية ثابتة؛ استخدم input.int أو input.float أو input.bool أو input.string."
+            return null
+        }
+        val defaultValue = when (defaultExpression) {
+            is PineExpr.NumberLiteral -> PineValue.Number(defaultExpression.value)
+            is PineExpr.StringLiteral -> PineValue.Text(defaultExpression.value)
+            is PineExpr.Identifier -> when (defaultExpression.name) {
+                "true" -> PineValue.Boolean(true)
+                "false" -> PineValue.Boolean(false)
+                else -> null
+            }
+            else -> null
+        }
+
+        if (type == InputType.SOURCE) {
+            val sourceName = (defaultExpression as? PineExpr.Identifier)?.name
+            if (sourceName !in setOf("open", "high", "low", "close", "volume")) {
+                errors += "السطر " + line + ": input.source يدعم حالياً مصادر OHLCV المباشرة فقط."
+                return null
+            }
+            warnings += "السطر " + line + ": input.source($sourceName) يبقى على مصدره الافتراضي ولا يمكن تغييره من الواجهة حالياً."
+            return if (errors.size == startErrors) InputDefinition(
+                name, title, type, null, sourceExpression = sourceName, sourceLine = line
+            ) else null
+        }
+        if (defaultValue == null) {
+            errors += "السطر " + line + ": القيمة الافتراضية لـ " + call.name + " يجب أن تكون رقماً أو منطقاً أو نصاً ثابتاً."
+            return null
+        }
+
+        val minValue = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("minval", 2) else null
+        val maxValue = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("maxval", 3) else null
+        val step = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("step", 4) else null
+        if (minValue != null && maxValue != null && minValue > maxValue) {
+            errors += "السطر " + line + ": minval لا يجوز أن يتجاوز maxval في " + call.name + "."
+        }
+        if (step != null && step <= 0.0) {
+            errors += "السطر " + line + ": step يجب أن يكون أكبر من الصفر في " + call.name + "."
+        }
+        val definition = InputDefinition(name, title, type, defaultValue, minValue, maxValue, step, sourceLine = line)
+        definition.validationError(defaultValue)?.let { message ->
+            errors += "السطر " + line + ": القيمة الافتراضية لـ " + name + " غير صالحة: " + message
+        }
+        return definition.takeIf { errors.size == startErrors }
     }
 
     private fun parseExpression(source: String, line: Int, errors: MutableList<String>): PineExpr? {
