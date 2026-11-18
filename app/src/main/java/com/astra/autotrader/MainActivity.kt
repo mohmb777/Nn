@@ -390,7 +390,8 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
 
         result?.let { converted ->
             val configured = converted.copy(inputValues = inputOverrides.filter { (name, value) ->
-                converted.inputs.firstOrNull { it.name == name }?.validationError(value) == null
+                val definition = converted.inputs.firstOrNull { it.name == name }
+                definition != null && definition.validationError(value) == null
             })
             val inputsValid = inputErrors.isEmpty()
             item {
