@@ -296,7 +296,8 @@ object PineScriptConverter {
                     .find(expressionText)?.groupValues?.get(1)
                 val inputArguments = inputCallName?.let { callArguments(expressionText, it) }.orEmpty()
                 val hasNamedOptions = inputCallName != null && Regex("""\boptions\s*=""").containsMatchIn(expressionText)
-                val hasPositionalOptions = inputCallName in setOf("input.int", "input.float", "input.string") &&
+                val hasPositionalOptions = inputCallName != null &&
+                    inputCallName in setOf("input.int", "input.float", "input.string") &&
                     inputArguments.getOrNull(2)?.trim()?.startsWith("[") == true
                 val hasUnsupportedOptions = hasNamedOptions || hasPositionalOptions
                 if (hasUnsupportedOptions) {
