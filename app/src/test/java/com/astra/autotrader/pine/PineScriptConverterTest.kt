@@ -969,8 +969,8 @@ class PineScriptConverterTest {
         val result = PineScriptConverter.convert("""
             //@version=5
             indicator("Generic numeric inputs")
-            integerPeriod = input(2, "Integer period")
-            floatFactor = input(2.0, "Float factor")
+            integerPeriod = input(2, "Integer period", "Tooltip")
+            floatFactor = input(2.0, "Float factor", tooltip="Multiplier")
             alertcondition(close > open, title="CALL")
         """.trimIndent())
 
