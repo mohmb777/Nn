@@ -303,7 +303,7 @@ object PineScriptConverter {
                         variables[name] = compiled
                         declarations += name + " = " + expressionText
                         if (compiled is PineExpr.Call && compiled.name in inputCalls && errors.size == errorsBeforeExpression) {
-                            val input = parseInputDefinition(name, compiled, lineNumber, errors, warnings)
+                            val input = parseInputDefinition(name, compiled, expressionText, lineNumber, errors, warnings)
                             if (input != null) {
                                 if (inputs.any { it.name == name }) {
                                     errors += "السطر " + lineNumber + ": تعريف input مكرر للمتغير " + name + "."
@@ -749,6 +749,7 @@ object PineScriptConverter {
     private fun parseInputDefinition(
         name: String,
         call: PineExpr.Call,
+        sourceText: String,
         line: Int,
         errors: MutableList<String>,
         warnings: MutableList<String>
@@ -773,6 +774,9 @@ object PineScriptConverter {
             return null
         }
         val defaultExpression = argument("defval", 0)
+        val rawDefaultText = callArguments(sourceText, call.name).firstOrNull()?.let { raw ->
+            splitNamedArgument(raw)?.second ?: raw
+        }?.trim()
         if (defaultExpression == null) {
             errors += "السطر " + line + ": input يحتاج قيمة افتراضية ثابتة في defval."
             return null
@@ -793,7 +797,7 @@ object PineScriptConverter {
             "input.string" -> InputType.STRING
             "input.source" -> InputType.SOURCE
             else -> when (defaultExpression) {
-                is PineExpr.NumberLiteral -> if (defaultExpression.value % 1.0 == 0.0) InputType.INTEGER else InputType.FLOAT
+                is PineExpr.NumberLiteral -> if (rawDefaultText?.contains('.') == true) InputType.FLOAT else InputType.INTEGER
                 is PineExpr.StringLiteral -> InputType.STRING
                 is PineExpr.Identifier -> when {
                     defaultExpression.name == "true" || defaultExpression.name == "false" -> InputType.BOOLEAN
