@@ -944,16 +944,24 @@ class PineScriptConverterTest {
         assertTrue(result.warnings.any { it.contains("مصدر") })
     }
 
-    @Test fun rejectsStringInputOptionsRatherThanIgnoringTheDropdown() {
-        val result = PineScriptConverter.convert("""
+    @Test fun rejectsInputOptionListsRatherThanIgnoringTheDropdown() {
+        val stringOptions = PineScriptConverter.convert("""
             //@version=5
             indicator("String options")
             mode = input.string("CALL", "Mode", options=["CALL", "PUT"])
             alertcondition(mode == "CALL", title="CALL")
         """.trimIndent())
+        assertFalse(stringOptions.supported)
+        assertTrue(stringOptions.errors.any { it.contains("options") && it.contains("غير مدعوم") })
 
-        assertFalse(result.supported)
-        assertTrue(result.errors.any { it.contains("options") && it.contains("غير مدعوم") })
+        val integerOptions = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Integer options")
+            period = input.int(10, "Period", [5, 10, 20])
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+        assertFalse(integerOptions.supported)
+        assertTrue(integerOptions.errors.any { it.contains("options") && it.contains("غير مدعوم") })
     }
 
 
