@@ -804,4 +804,110 @@ class PineScriptConverterTest {
         })
     }
 
+
+    @Test fun exposesTypedPineInputDefinitionsAndValidationBounds() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Typed inputs")
+            period = input.int(2, "Period", minval=1, maxval=10, step=1)
+            threshold = input.float(1.5, "Threshold", minval=0.5, maxval=3.0, step=0.1)
+            enabled = input.bool(true, "Enable")
+            label = input.string("Alpha", "Label")
+            alertcondition(enabled and close > threshold, title="CALL")
+        """.trimIndent())
+
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        assertEquals(4, result.inputs.size)
+        val period = result.inputs.single { it.name == "period" }
+        assertEquals(PineScriptConverter.InputType.INTEGER, period.type)
+        assertEquals(PineValue.Number(2.0), period.defaultValue)
+        assertEquals(1.0, period.minValue!!, 1e-9)
+        assertEquals(10.0, period.maxValue!!, 1e-9)
+        assertEquals(1.0, period.step!!, 1e-9)
+        assertNull(period.validationError(PineValue.Number(5.0)))
+        assertTrue(period.validationError(PineValue.Number(11.0))!!.contains("الأقصى"))
+        assertTrue(period.validationError(PineValue.Number(2.5))!!.contains("صحيحاً"))
+        assertEquals(PineScriptConverter.InputType.FLOAT, result.inputs.single { it.name == "threshold" }.type)
+        assertEquals(PineScriptConverter.InputType.BOOLEAN, result.inputs.single { it.name == "enabled" }.type)
+        assertEquals(PineScriptConverter.InputType.STRING, result.inputs.single { it.name == "label" }.type)
+    }
+
+    @Test fun inputOverridesChangeSignalsWithoutChangingPineDefaults() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Editable period")
+            period = input.int(2, "Period", minval=1, maxval=5)
+            average = ta.sma(close, period)
+            alertcondition(average > open, title="CALL")
+        """.trimIndent())
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+
+        val bars = listOf(
+            PineOhlcBar(1, 1.0, 1.5, 0.5, 1.0),
+            PineOhlcBar(2, 2.0, 3.5, 1.5, 3.0),
+            PineOhlcBar(3, 2.5, 3.5, 2.0, 3.0)
+        )
+        assertEquals(
+            PineSignalAction.CALL,
+            PineScriptEvaluator(bars, result.compiledVariables, result.inputs, result.inputValues)
+                .signalAt(result, 2).action
+        )
+
+        val configured = result.copy(inputValues = mapOf("period" to PineValue.Number(3.0)))
+        assertEquals(
+            PineSignalAction.WAIT,
+            PineScriptEvaluator(bars, configured.compiledVariables, configured.inputs, configured.inputValues)
+                .signalAt(configured, 2).action
+        )
+
+        val invalidOverride = result.copy(inputValues = mapOf("period" to PineValue.Number(6.0)))
+        assertEquals(
+            PineSignalAction.CALL,
+            PineScriptEvaluator(bars, invalidOverride.compiledVariables, invalidOverride.inputs, invalidOverride.inputValues)
+                .signalAt(invalidOverride, 2).action
+        )
+    }
+
+    @Test fun booleanInputOverrideCanDisableAnAlertCondition() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Boolean input")
+            enabled = input.bool(true, "Enable signals")
+            alertcondition(enabled and close > open, title="CALL")
+        """.trimIndent())
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+        val bars = listOf(PineOhlcBar(1, 10.0, 12.0, 9.0, 11.0))
+
+        assertEquals(PineSignalAction.CALL, PineScriptEvaluator(bars, result.compiledVariables).signalAt(result, 0).action)
+        val disabled = result.copy(inputValues = mapOf("enabled" to PineValue.Boolean(false)))
+        assertEquals(
+            PineSignalAction.WAIT,
+            PineScriptEvaluator(bars, disabled.compiledVariables, disabled.inputs, disabled.inputValues)
+                .signalAt(disabled, 0).action
+        )
+    }
+
+    @Test fun sourceInputRemainsFixedAndUnsupportedDefaultRangesAreRejected() {
+        val source = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Source input")
+            src = input.source(close, "Price source")
+            average = ta.sma(src, 2)
+            alertcondition(close > average, title="CALL")
+        """.trimIndent())
+        assertTrue(source.errors.joinToString("\n"), source.supported)
+        assertEquals(PineScriptConverter.InputType.SOURCE, source.inputs.single().type)
+        assertEquals("close", source.inputs.single().sourceExpression)
+        assertTrue(source.warnings.any { it.contains("input.source") })
+
+        val invalid = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Invalid input")
+            period = input.int(2, "Period", minval=3, maxval=10)
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+        assertFalse(invalid.supported)
+        assertTrue(invalid.errors.any { it.contains("القيمة الافتراضية") && it.contains("أقل") })
+    }
+
 }
