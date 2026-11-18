@@ -760,6 +760,10 @@ object PineScriptConverter {
         errors: MutableList<String>,
         warnings: MutableList<String>
     ): InputDefinition? {
+        if (name in setOf("open", "high", "low", "close", "volume", "true", "false", "na")) {
+            errors += "السطر " + line + ": اسم input يتعارض مع رمز Pine محجوز أو مصدر OHLCV: " + name + "."
+            return null
+        }
         val positional = call.arguments.filter { it.name == null }.map { it.value }
         fun argument(key: String, position: Int): PineExpr? =
             call.arguments.firstOrNull { it.name == key }?.value ?: positional.getOrNull(position)
