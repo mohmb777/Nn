@@ -979,4 +979,17 @@ class PineScriptConverterTest {
         assertEquals(PineScriptConverter.InputType.FLOAT, result.inputs.single { it.name == "floatFactor" }.type)
     }
 
+
+    @Test fun rejectsInputNamesThatShadowOhlcBuiltIns() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Reserved input")
+            close = input.int(2, "Close")
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+
+        assertFalse(result.supported)
+        assertTrue(result.errors.any { it.contains("يتعارض") && it.contains("close") })
+    }
+
 }
