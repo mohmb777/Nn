@@ -844,9 +844,10 @@ object PineScriptConverter {
             return null
         }
 
-        val minValue = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("minval", 2) else null
-        val maxValue = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("maxval", 3) else null
-        val step = if (type == InputType.INTEGER || type == InputType.FLOAT) numberArgument("step", 4) else null
+        val supportsNumericBounds = call.name == "input.int" || call.name == "input.float"
+        val minValue = if (supportsNumericBounds) numberArgument("minval", 2) else null
+        val maxValue = if (supportsNumericBounds) numberArgument("maxval", 3) else null
+        val step = if (supportsNumericBounds) numberArgument("step", 4) else null
         if (type == InputType.INTEGER && listOfNotNull(minValue, maxValue, step).any { it % 1.0 != 0.0 }) {
             errors += "السطر " + line + ": minval وmaxval وstep في input.int يجب أن تكون أعداداً صحيحة."
         }
