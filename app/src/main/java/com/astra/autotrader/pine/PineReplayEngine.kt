@@ -92,7 +92,7 @@ object PineReplayEngine {
             previousTime = bar.time
         }
 
-        val evaluator = PineScriptEvaluator(dataset.bars, conversion.compiledVariables)
+        val evaluator = PineScriptEvaluator(dataset.bars, conversion.compiledVariables, conversion.inputs, conversion.inputValues)
         var calls = 0
         var puts = 0
         var waits = 0

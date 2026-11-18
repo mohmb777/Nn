@@ -96,7 +96,7 @@ class PinePaperTradingBridge(
             }
         }
 
-        val signal = PineScriptEvaluator(window, conversion.compiledVariables).signalAt(conversion, index)
+        val signal = PineScriptEvaluator(window, conversion.compiledVariables, conversion.inputs, conversion.inputValues).signalAt(conversion, index)
         // حتى WAIT يُستهلك مرة واحدة؛ إعادة الاستدعاء على الشمعة نفسها لا تعيد إطلاقها.
         lastProcessedByStrategy[strategyId] = bar.time
 
