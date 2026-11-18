@@ -20,30 +20,32 @@ object PineScriptConverter {
         val sourceExpression: String? = null,
         val sourceLine: Int
     ) {
-        fun validationError(value: PineValue): String? = when (type) {
-            InputType.INTEGER -> {
-                val number = (value as? PineValue.Number)?.value
-                    ?: return "القيمة يجب أن تكون عدداً صحيحاً."
-                when {
-                    !number.isFinite() || number % 1.0 != 0.0 -> "القيمة يجب أن تكون عدداً صحيحاً محدوداً."
-                    minValue != null && number < minValue -> "القيمة أقل من الحد الأدنى $minValue."
-                    maxValue != null && number > maxValue -> "القيمة أعلى من الحد الأقصى $maxValue."
-                    else -> null
+        fun validationError(value: PineValue): String? {
+            return when (type) {
+                InputType.INTEGER -> {
+                    val number = (value as? PineValue.Number)?.value
+                        ?: return "القيمة يجب أن تكون عدداً صحيحاً."
+                    when {
+                        !number.isFinite() || number % 1.0 != 0.0 -> "القيمة يجب أن تكون عدداً صحيحاً محدوداً."
+                        minValue != null && number < minValue -> "القيمة أقل من الحد الأدنى $minValue."
+                        maxValue != null && number > maxValue -> "القيمة أعلى من الحد الأقصى $maxValue."
+                        else -> null
+                    }
                 }
-            }
-            InputType.FLOAT -> {
-                val number = (value as? PineValue.Number)?.value
-                    ?: return "القيمة يجب أن تكون رقمية."
-                when {
-                    !number.isFinite() -> "القيمة يجب أن تكون رقماً محدوداً."
-                    minValue != null && number < minValue -> "القيمة أقل من الحد الأدنى $minValue."
-                    maxValue != null && number > maxValue -> "القيمة أعلى من الحد الأقصى $maxValue."
-                    else -> null
+                InputType.FLOAT -> {
+                    val number = (value as? PineValue.Number)?.value
+                        ?: return "القيمة يجب أن تكون رقمية."
+                    when {
+                        !number.isFinite() -> "القيمة يجب أن تكون رقماً محدوداً."
+                        minValue != null && number < minValue -> "القيمة أقل من الحد الأدنى $minValue."
+                        maxValue != null && number > maxValue -> "القيمة أعلى من الحد الأقصى $maxValue."
+                        else -> null
+                    }
                 }
+                InputType.BOOLEAN -> if (value is PineValue.Boolean) null else "القيمة يجب أن تكون منطقية."
+                InputType.STRING -> if (value is PineValue.Text) null else "القيمة يجب أن تكون نصاً."
+                InputType.SOURCE -> "input.source ثابت حالياً ولا يقبل تعديلاً من واجهة المحوّل."
             }
-            InputType.BOOLEAN -> if (value is PineValue.Boolean) null else "القيمة يجب أن تكون منطقية."
-            InputType.STRING -> if (value is PineValue.Text) null else "القيمة يجب أن تكون نصاً."
-            InputType.SOURCE -> "input.source ثابت حالياً ولا يقبل تعديلاً من واجهة المحوّل."
         }
     }
 
@@ -802,7 +804,7 @@ object PineScriptConverter {
 
         if (type == InputType.SOURCE) {
             val sourceName = (defaultExpression as? PineExpr.Identifier)?.name
-            if (sourceName !in setOf("open", "high", "low", "close", "volume")) {
+            if (sourceName == null || sourceName !in setOf("open", "high", "low", "close", "volume")) {
                 errors += "السطر " + line + ": input.source يدعم حالياً مصادر OHLCV المباشرة فقط."
                 return null
             }
