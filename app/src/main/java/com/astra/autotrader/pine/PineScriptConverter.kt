@@ -292,8 +292,8 @@ object PineScriptConverter {
             if (assignment != null) {
                 val name = assignment.groupValues[1]
                 val expressionText = assignment.groupValues[2].trim()
-                val hasUnsupportedOptions = Regex("""\\binput(?:\\.(?:int|float|string))?\\s*\\(""").containsMatchIn(expressionText) &&
-                    Regex("""\\boptions\\s*=""").containsMatchIn(expressionText)
+                val hasUnsupportedOptions = Regex("""\binput(?:\.(?:int|float|string))?\s*\(""").containsMatchIn(expressionText) &&
+                    Regex("""\boptions\s*=""").containsMatchIn(expressionText)
                 if (hasUnsupportedOptions) {
                     errors += "السطر " + lineNumber + ": وسيط options في input غير مدعوم حالياً؛ لم يتم تجاهل قائمة الخيارات."
                 } else {
