@@ -23,6 +23,7 @@ import com.astra.autotrader.engine.EngineState
 import com.astra.autotrader.engine.TradingForegroundService
 import com.astra.autotrader.browser.PocketChartDiagnostics
 import com.astra.autotrader.pine.PineScriptConverter
+import com.astra.autotrader.pine.PineValue
 import com.astra.autotrader.pine.PineOhlcCsvParser
 import com.astra.autotrader.pine.PineOhlcDataset
 import com.astra.autotrader.pine.PineReplayEngine
@@ -275,6 +276,28 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
     var replayReport by remember { mutableStateOf<com.astra.autotrader.pine.PineReplayReport?>(null) }
     var tickSizeText by remember { mutableStateOf("") }
     var strategyReplayReport by remember { mutableStateOf<com.astra.autotrader.pine.PineStrategyReplayReport?>(null) }
+    var inputDrafts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var inputOverrides by remember { mutableStateOf<Map<String, PineValue>>(emptyMap()) }
+    var inputErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    fun updateInputValue(input: PineScriptConverter.InputDefinition, value: PineValue) {
+        val error = input.validationError(value)
+        if (error == null) {
+            inputOverrides = inputOverrides + (input.name to value)
+            inputErrors = inputErrors - input.name
+        } else {
+            inputOverrides = inputOverrides - input.name
+            inputErrors = inputErrors + (input.name to error)
+        }
+        replayReport = null
+        strategyReplayReport = null
+    }
+
+    fun clearInputValues() {
+        inputDrafts = emptyMap()
+        inputOverrides = emptyMap()
+        inputErrors = emptyMap()
+    }
 
     val pinePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -283,6 +306,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     source = it
                     result = null
                     pineFileError = null
+                    clearInputValues()
                     replayReport = null; strategyReplayReport = null
                 }
                 .onFailure { pineFileError = it.message ?: "تعذرت قراءة ملف Pine." }
@@ -342,6 +366,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                 onValueChange = {
                     source = it
                     result = null
+                    clearInputValues()
                     replayReport = null; strategyReplayReport = null
                 },
                 label = { Text("كود Pine Script") },
@@ -352,13 +377,22 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
         }
         item {
             Button(
-                onClick = { result = PineScriptConverter.convert(source); replayReport = null; strategyReplayReport = null },
+                onClick = {
+                    result = PineScriptConverter.convert(source)
+                    clearInputValues()
+                    replayReport = null
+                    strategyReplayReport = null
+                },
                 enabled = source.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) { Text("تحليل وتحويل") }
         }
 
         result?.let { converted ->
+            val configured = converted.copy(inputValues = inputOverrides.filter { (name, value) ->
+                converted.inputs.firstOrNull { it.name == name }?.validationError(value) == null
+            })
+            val inputsValid = inputErrors.isEmpty()
             item {
                 InfoCard(
                     "نوع السكربت",
@@ -381,6 +415,84 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
             }
             converted.warnings.forEach { message ->
                 item { Text("تنبيه: $message", color = MaterialTheme.colorScheme.tertiary) }
+            }
+            if (converted.inputs.isNotEmpty()) {
+                item {
+                    InfoCard(
+                        "مدخلات المؤشر القابلة للتعديل",
+                        "تُطبّق هذه القيم على إعادة الاختبار والمحاكاة المحلية فقط؛ القيم الافتراضية تبقى كما في Pine ما لم تغيّرها."
+                    )
+                }
+            }
+            converted.inputs.forEach { pineInput ->
+                item {
+                    when (pineInput.type) {
+                        PineScriptConverter.InputType.INTEGER, PineScriptConverter.InputType.FLOAT -> {
+                            val defaultText = (pineInput.defaultValue as? PineValue.Number)?.value?.toString() ?: ""
+                            OutlinedTextField(
+                                value = inputDrafts[pineInput.name] ?: defaultText,
+                                onValueChange = { raw ->
+                                    inputDrafts = inputDrafts + (pineInput.name to raw)
+                                    val parsed = raw.trim().replace(',', '.').toDoubleOrNull()
+                                    val candidate = parsed?.takeIf {
+                                        it.isFinite() && (pineInput.type != PineScriptConverter.InputType.INTEGER || it % 1.0 == 0.0)
+                                    }?.let { PineValue.Number(it) }
+                                    if (candidate == null) {
+                                        inputOverrides = inputOverrides - pineInput.name
+                                        inputErrors = inputErrors + (pineInput.name to if (pineInput.type == PineScriptConverter.InputType.INTEGER) "أدخل عدداً صحيحاً صالحاً." else "أدخل رقماً صالحاً.")
+                                        replayReport = null
+                                        strategyReplayReport = null
+                                    } else {
+                                        updateInputValue(pineInput, candidate)
+                                    }
+                                },
+                                label = { Text(pineInput.title) },
+                                supportingText = {
+                                    Text(buildString {
+                                        append("الافتراضي: ").append(defaultText)
+                                        pineInput.minValue?.let { append(" — الأدنى: ").append(it) }
+                                        pineInput.maxValue?.let { append(" — الأعلى: ").append(it) }
+                                        pineInput.step?.let { append(" — الخطوة: ").append(it) }
+                                    })
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                        }
+                        PineScriptConverter.InputType.BOOLEAN -> {
+                            val enabled = (inputOverrides[pineInput.name] as? PineValue.Boolean)?.value
+                                ?: (pineInput.defaultValue as? PineValue.Boolean)?.value ?: false
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Text(pineInput.title, modifier = Modifier.weight(1f))
+                                OutlinedButton(onClick = { updateInputValue(pineInput, PineValue.Boolean(!enabled)) }) {
+                                    Text(if (enabled) "مفعّل" else "معطّل")
+                                }
+                            }
+                        }
+                        PineScriptConverter.InputType.STRING -> {
+                            val defaultText = (pineInput.defaultValue as? PineValue.Text)?.value ?: ""
+                            OutlinedTextField(
+                                value = inputDrafts[pineInput.name] ?: defaultText,
+                                onValueChange = { raw ->
+                                    inputDrafts = inputDrafts + (pineInput.name to raw)
+                                    updateInputValue(pineInput, PineValue.Text(raw))
+                                },
+                                label = { Text(pineInput.title) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                        }
+                        PineScriptConverter.InputType.SOURCE -> {
+                            InfoCard(
+                                pineInput.title,
+                                "مصدر Pine ثابت: ${pineInput.sourceExpression ?: "غير محدد"} — لا يمكن تغييره من الواجهة حالياً."
+                            )
+                        }
+                    }
+                    inputErrors[pineInput.name]?.let { message ->
+                        Text("قيمة غير صالحة: $message", color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
             converted.declarations.forEach { line ->
                 item { Text(line, style = MaterialTheme.typography.bodySmall) }
@@ -420,9 +532,9 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                 Button(
                     onClick = {
                         val loaded = dataset
-                        if (loaded != null) replayReport = PineReplayEngine.run(converted, loaded)
+                        if (loaded != null) replayReport = PineReplayEngine.run(configured, loaded)
                     },
-                    enabled = converted.supported && dataset != null,
+                    enabled = converted.supported && dataset != null && inputsValid,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("إعادة اختبار الإشارات على ملف OHLC") }
             }
@@ -445,10 +557,10 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                                 val tick = tickSizeText.trim().let {
                                     if (it.isEmpty()) null else it.toDoubleOrNull() ?: Double.NaN
                                 }
-                                strategyReplayReport = PineStrategyReplayEngine.run(converted, loaded, tick)
+                                strategyReplayReport = PineStrategyReplayEngine.run(configured, loaded, tick)
                             }
                         },
-                        enabled = converted.supported && dataset != null,
+                        enabled = converted.supported && dataset != null && inputsValid,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("محاكاة الاستراتيجية مع SL/TP") }
                 }
