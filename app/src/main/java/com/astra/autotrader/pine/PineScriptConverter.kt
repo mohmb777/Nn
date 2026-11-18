@@ -292,18 +292,24 @@ object PineScriptConverter {
             if (assignment != null) {
                 val name = assignment.groupValues[1]
                 val expressionText = assignment.groupValues[2].trim()
-                val errorsBeforeExpression = errors.size
-                val compiled = parseExpression(expressionText, lineNumber, errors)
-                if (compiled != null) {
-                    variables[name] = compiled
-                    declarations += name + " = " + expressionText
-                    if (compiled is PineExpr.Call && compiled.name in inputCalls && errors.size == errorsBeforeExpression) {
-                        val input = parseInputDefinition(name, compiled, lineNumber, errors, warnings)
-                        if (input != null) {
-                            if (inputs.any { it.name == name }) {
-                                errors += "السطر " + lineNumber + ": تعريف input مكرر للمتغير " + name + "."
-                            } else {
-                                inputs += input
+                val hasUnsupportedOptions = Regex("""\\binput(?:\\.(?:int|float|string))?\\s*\\(""").containsMatchIn(expressionText) &&
+                    Regex("""\\boptions\\s*=""").containsMatchIn(expressionText)
+                if (hasUnsupportedOptions) {
+                    errors += "السطر " + lineNumber + ": وسيط options في input غير مدعوم حالياً؛ لم يتم تجاهل قائمة الخيارات."
+                } else {
+                    val errorsBeforeExpression = errors.size
+                    val compiled = parseExpression(expressionText, lineNumber, errors)
+                    if (compiled != null) {
+                        variables[name] = compiled
+                        declarations += name + " = " + expressionText
+                        if (compiled is PineExpr.Call && compiled.name in inputCalls && errors.size == errorsBeforeExpression) {
+                            val input = parseInputDefinition(name, compiled, lineNumber, errors, warnings)
+                            if (input != null) {
+                                if (inputs.any { it.name == name }) {
+                                    errors += "السطر " + lineNumber + ": تعريف input مكرر للمتغير " + name + "."
+                                } else {
+                                    inputs += input
+                                }
                             }
                         }
                     }
