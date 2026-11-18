@@ -41,8 +41,11 @@ sealed interface PineValue {
  */
 class PineScriptEvaluator(
     private val bars: List<PineOhlcBar>,
-    private val variables: Map<String, PineExpr>
+    private val variables: Map<String, PineExpr>,
+    private val inputDefinitions: List<PineScriptConverter.InputDefinition> = emptyList(),
+    private val inputValues: Map<String, PineValue> = emptyMap()
 ) {
+    private val inputDefinitionsByName = inputDefinitions.associateBy { it.name }
     fun evaluate(expression: PineExpr, index: Int): PineValue? {
         if (index !in bars.indices) return null
         return eval(expression, index, emptySet())
@@ -71,7 +74,9 @@ class PineScriptEvaluator(
 
     fun signalAt(conversion: PineScriptConverter.Conversion, index: Int): PineSignalResult {
         if (index !in bars.indices) return PineSignalResult(PineSignalAction.WAIT, emptyList(), "فهرس الشمعة خارج البيانات.")
-        val evaluator = PineScriptEvaluator(bars, conversion.compiledVariables)
+        val evaluator = PineScriptEvaluator(
+            bars, conversion.compiledVariables, conversion.inputs, conversion.inputValues
+        )
         val activeSignals = conversion.signals.filter { rule ->
             val expression = rule.compiledExpression ?: return@filter false
             (evaluator.evaluate(expression, index) as? PineValue.Boolean)?.value == true
@@ -118,6 +123,11 @@ class PineScriptEvaluator(
     }
 
     private fun identifier(name: String, index: Int, visiting: Set<String>): PineValue? {
+        val inputDefinition = inputDefinitionsByName[name]
+        val inputOverride = inputValues[name]
+        if (inputDefinition != null && inputOverride != null && inputDefinition.validationError(inputOverride) == null) {
+            return inputOverride
+        }
         val bar = bars[index]
         when (name) {
             "open" -> return PineValue.Number(bar.open)
