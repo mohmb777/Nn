@@ -120,6 +120,7 @@ class PineScriptEvaluator(
             if (historicalIndex < 0) null else eval(expression.source, historicalIndex, visiting)
         }
         is PineExpr.Call -> call(expression, index, visiting)
+        is PineExpr.ListLiteral -> null
     }
 
     private fun identifier(name: String, index: Int, visiting: Set<String>): PineValue? {
