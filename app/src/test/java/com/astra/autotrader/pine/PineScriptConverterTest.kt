@@ -944,24 +944,56 @@ class PineScriptConverterTest {
         assertTrue(result.warnings.any { it.contains("مصدر") })
     }
 
-    @Test fun rejectsInputOptionListsRatherThanIgnoringTheDropdown() {
-        val stringOptions = PineScriptConverter.convert("""
+    @Test fun supportsNamedStringAndNumericInputOptionLists() {
+        val result = PineScriptConverter.convert("""
             //@version=5
-            indicator("String options")
+            indicator("Input options")
             mode = input.string("CALL", "Mode", options=["CALL", "PUT"])
-            alertcondition(mode == "CALL", title="CALL")
+            period = input.int(10, "Period", options=[5, 10, 20])
+            factor = input.float(1.5, "Factor", options=[1.0, 1.5, 2.0])
+            alertcondition(mode == "CALL" and close > open and period >= 5 and factor > 0, title="CALL")
         """.trimIndent())
-        assertFalse(stringOptions.supported)
-        assertTrue(stringOptions.errors.any { it.contains("options") && it.contains("غير مدعوم") })
 
-        val integerOptions = PineScriptConverter.convert("""
+        assertTrue(result.errors.joinToString("\\n"), result.supported)
+        assertEquals(listOf(PineValue.Text("CALL"), PineValue.Text("PUT")), result.inputs.single { it.name == "mode" }.options)
+        assertEquals(listOf(PineValue.Number(5.0), PineValue.Number(10.0), PineValue.Number(20.0)), result.inputs.single { it.name == "period" }.options)
+        assertEquals(listOf(PineValue.Number(1.0), PineValue.Number(1.5), PineValue.Number(2.0)), result.inputs.single { it.name == "factor" }.options)
+        assertNull(result.inputs.single { it.name == "period" }.validationError(PineValue.Number(10.0)))
+        assertNotNull(result.inputs.single { it.name == "period" }.validationError(PineValue.Number(7.0)))
+    }
+
+    @Test fun supportsPositionalInputIntAndFloatOptionsOverloads() {
+        val result = PineScriptConverter.convert("""
             //@version=5
-            indicator("Integer options")
-            period = input.int(10, "Period", [5, 10, 20])
-            alertcondition(close > open, title="CALL")
+            indicator("Positional options")
+            period = input.int(10, "Period", [5, 10, 20], "Choose period")
+            factor = input.float(1.5, "Factor", [1.0, 1.5, 2.0], "Choose factor")
+            alertcondition(period > 0 and factor > 0, title="CALL")
         """.trimIndent())
-        assertFalse(integerOptions.supported)
-        assertTrue(integerOptions.errors.any { it.contains("options") && it.contains("غير مدعوم") })
+
+        assertTrue(result.errors.joinToString("\\n"), result.supported)
+        assertEquals(3, result.inputs.single { it.name == "period" }.options.size)
+        assertEquals(3, result.inputs.single { it.name == "factor" }.options.size)
+    }
+
+    @Test fun rejectsInvalidPineInputOptionListsPrecisely() {
+        val invalid = listOf(
+            """period = input.int(10, "Period", options=[5, 10, 20], minval=1)""" to "لا يجوز الجمع",
+            """period = input.int(7, "Period", options=[5, 10, 20])""" to "القيمة الافتراضية يجب",
+            """period = input.int(10, "Period", options=[5, 5, 10])""" to "لا يجوز تكرار",
+            """period = input.int(10, "Period", options=[5, "ten", 20])""" to "نوع عناصر",
+            """mode = input.string("CALL", "Mode", options=["PUT"])""" to "القيمة الافتراضية يجب"
+        )
+        invalid.forEach { (declaration, expected) ->
+            val result = PineScriptConverter.convert("""
+                //@version=5
+                indicator("Invalid options")
+                $declaration
+                alertcondition(close > open, title="CALL")
+            """.trimIndent())
+            assertFalse("$declaration should be rejected", result.supported)
+            assertTrue("$declaration: ${result.errors}", result.errors.any { it.contains(expected) })
+        }
     }
 
 
