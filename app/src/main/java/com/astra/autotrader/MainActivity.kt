@@ -427,7 +427,48 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
             }
             converted.inputs.forEach { pineInput ->
                 item {
-                    when (pineInput.type) {
+                    var optionsExpanded by remember(pineInput.name) { mutableStateOf(false) }
+                    if (pineInput.options.isNotEmpty()) {
+                        val selectedValue = inputOverrides[pineInput.name] ?: pineInput.defaultValue
+                        val selectedLabel = when (selectedValue) {
+                            is PineValue.Number -> selectedValue.value.toString()
+                            is PineValue.Text -> selectedValue.value
+                            is PineValue.Boolean -> if (selectedValue.value) "صحيح" else "خطأ"
+                            null -> "غير محدد"
+                        }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { optionsExpanded = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("${pineInput.title}: $selectedLabel")
+                            }
+                            DropdownMenu(
+                                expanded = optionsExpanded,
+                                onDismissRequest = { optionsExpanded = false }
+                            ) {
+                                pineInput.options.forEach { option ->
+                                    val optionLabel = when (option) {
+                                        is PineValue.Number -> option.value.toString()
+                                        is PineValue.Text -> option.value
+                                        is PineValue.Boolean -> if (option.value) "صحيح" else "خطأ"
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text(optionLabel) },
+                                        onClick = {
+                                            optionsExpanded = false
+                                            updateInputValue(pineInput, option)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            "قائمة خيارات ثابتة من سكربت Pine؛ لا يمكن اختيار قيمة خارجها.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else when (pineInput.type) {
                         PineScriptConverter.InputType.INTEGER, PineScriptConverter.InputType.FLOAT -> {
                             val defaultText = (pineInput.defaultValue as? PineValue.Number)?.value?.toString() ?: ""
                             OutlinedTextField(
