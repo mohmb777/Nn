@@ -319,6 +319,7 @@ object PineScriptConverter {
             ) {
                 errors += "السطر " + lineNumber + ": صيغة عبارة Pine غير مدعومة أو لا يمكن تمثيلها بأمان: " + line.take(120)
             }
+        }
         val knownIdentifiers = variables.keys + setOf("open", "high", "low", "close", "volume", "true", "false", "na")
         val compiledExpressions = buildList {
             addAll(variables.values)
@@ -799,6 +800,9 @@ object PineScriptConverter {
             "input.source" -> InputType.SOURCE
             else -> when (defaultExpression) {
                 is PineExpr.NumberLiteral -> if (rawDefaultText?.contains('.') == true) InputType.FLOAT else InputType.INTEGER
+                is PineExpr.Unary -> if (expressionNumber(defaultExpression) != null) {
+                    if (rawDefaultText?.contains('.') == true) InputType.FLOAT else InputType.INTEGER
+                } else null
                 is PineExpr.StringLiteral -> InputType.STRING
                 is PineExpr.Identifier -> when {
                     defaultExpression.name == "true" || defaultExpression.name == "false" -> InputType.BOOLEAN
@@ -814,6 +818,7 @@ object PineScriptConverter {
         }
         val defaultValue = when (defaultExpression) {
             is PineExpr.NumberLiteral -> PineValue.Number(defaultExpression.value)
+            is PineExpr.Unary -> expressionNumber(defaultExpression)?.let { PineValue.Number(it) }
             is PineExpr.StringLiteral -> PineValue.Text(defaultExpression.value)
             is PineExpr.Identifier -> when (defaultExpression.name) {
                 "true" -> PineValue.Boolean(true)
@@ -923,9 +928,38 @@ object PineScriptConverter {
         return definition.takeIf { errors.size == startErrors }
     }
 
+    private fun expressionNumber(expression: PineExpr): Double? = when (expression) {
+        is PineExpr.NumberLiteral -> expression.value
+        is PineExpr.Unary -> {
+            val value = (expression.operand as? PineExpr.NumberLiteral)?.value ?: return null
+            when (expression.operator) {
+                "-" -> -value
+                "+" -> value
+                else -> null
+            }
+        }
+        else -> null
+    }
+
     private fun parseExpression(source: String, line: Int, errors: MutableList<String>): PineExpr? {
         return try {
             val expression = PineExpressionParser.parse(source)
+            val containsList = when (expression) {
+                is PineExpr.ListLiteral -> true
+                is PineExpr.Call -> expression.arguments.any { it.value is PineExpr.ListLiteral }
+                is PineExpr.Unary -> expression.operand is PineExpr.ListLiteral
+                is PineExpr.Binary -> expression.left is PineExpr.ListLiteral || expression.right is PineExpr.ListLiteral
+                is PineExpr.HistoryReference -> expression.source is PineExpr.ListLiteral
+                else -> false
+            }
+            val optionListAllowed = (expression as? PineExpr.Call)?.let { call ->
+                call.name in setOf("input.int", "input.float", "input.string") &&
+                    call.arguments.any { it.value is PineExpr.ListLiteral && (it.name == "options" || it.name == null) }
+            } == true
+            if (containsList && !optionListAllowed) {
+                errors += "السطر " + line + ": القوائم الحرفية مدعومة فقط كوسيط options في input.int/input.float/input.string."
+                return null
+            }
             val calls = collectCallNodes(expression)
             val unsupported = calls.firstOrNull { it.name !in expressionCalls }
             if (unsupported != null) {
