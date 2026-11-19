@@ -18,10 +18,11 @@ object PineScriptConverter {
         val maxValue: Double? = null,
         val step: Double? = null,
         val sourceExpression: String? = null,
+        val options: List<PineValue> = emptyList(),
         val sourceLine: Int
     ) {
         fun validationError(value: PineValue): String? {
-            return when (type) {
+            val typeError = when (type) {
                 InputType.INTEGER -> {
                     val number = (value as? PineValue.Number)?.value
                         ?: return "القيمة يجب أن تكون عدداً صحيحاً."
@@ -46,6 +47,11 @@ object PineScriptConverter {
                 InputType.STRING -> if (value is PineValue.Text) null else "القيمة يجب أن تكون نصاً."
                 InputType.SOURCE -> "input.source ثابت حالياً ولا يقبل تعديلاً من واجهة المحوّل."
             }
+            if (typeError != null) return typeError
+            if (options.isNotEmpty() && value !in options) {
+                return "القيمة يجب أن تكون إحدى القيم المحددة في قائمة الخيارات."
+            }
+            return null
         }
     }
 
@@ -292,30 +298,18 @@ object PineScriptConverter {
             if (assignment != null) {
                 val name = assignment.groupValues[1]
                 val expressionText = assignment.groupValues[2].trim()
-                val inputCallName = Regex("""\b(input(?:\.(?:int|float|string))?)\s*\(""")
-                    .find(expressionText)?.groupValues?.get(1)
-                val inputArguments = inputCallName?.let { callArguments(expressionText, it) }.orEmpty()
-                val hasNamedOptions = inputArguments.any { splitNamedArgument(it)?.first == "options" }
-                val hasPositionalOptions = inputCallName != null &&
-                    inputCallName in setOf("input.int", "input.float", "input.string") &&
-                    inputArguments.getOrNull(2)?.trim()?.startsWith("[") == true
-                val hasUnsupportedOptions = hasNamedOptions || hasPositionalOptions
-                if (hasUnsupportedOptions) {
-                    errors += "السطر " + lineNumber + ": وسيط options في input غير مدعوم حالياً؛ لم يتم تجاهل قائمة الخيارات."
-                } else {
-                    val errorsBeforeExpression = errors.size
-                    val compiled = parseExpression(expressionText, lineNumber, errors)
-                    if (compiled != null) {
-                        variables[name] = compiled
-                        declarations += name + " = " + expressionText
-                        if (compiled is PineExpr.Call && compiled.name in inputCalls && errors.size == errorsBeforeExpression) {
-                            val input = parseInputDefinition(name, compiled, expressionText, lineNumber, errors, warnings)
-                            if (input != null) {
-                                if (inputs.any { it.name == name }) {
-                                    errors += "السطر " + lineNumber + ": تعريف input مكرر للمتغير " + name + "."
-                                } else {
-                                    inputs += input
-                                }
+                val errorsBeforeExpression = errors.size
+                val compiled = parseExpression(expressionText, lineNumber, errors)
+                if (compiled != null) {
+                    variables[name] = compiled
+                    declarations += name + " = " + expressionText
+                    if (compiled is PineExpr.Call && compiled.name in inputCalls && errors.size == errorsBeforeExpression) {
+                        val input = parseInputDefinition(name, compiled, expressionText, lineNumber, errors, warnings)
+                        if (input != null) {
+                            if (inputs.any { it.name == name }) {
+                                errors += "السطر " + lineNumber + ": تعريف input مكرر للمتغير " + name + "."
+                            } else {
+                                inputs += input
                             }
                         }
                     }
@@ -325,8 +319,6 @@ object PineScriptConverter {
             ) {
                 errors += "السطر " + lineNumber + ": صيغة عبارة Pine غير مدعومة أو لا يمكن تمثيلها بأمان: " + line.take(120)
             }
-        }
-
         val knownIdentifiers = variables.keys + setOf("open", "high", "low", "close", "volume", "true", "false", "na")
         val compiledExpressions = buildList {
             addAll(variables.values)
@@ -777,12 +769,11 @@ object PineScriptConverter {
         }
 
         val startErrors = errors.size
-        if (call.name == "input.string" &&
-            (call.arguments.any { it.name == "options" } || positional.size > 2)
-        ) {
-            errors += "السطر " + line + ": قوائم options في input.string غير مدعومة حالياً؛ احذف options أو استخدم قيمة نصية ثابتة."
-            return null
+        val optionsNamed = call.arguments.firstOrNull { it.name == "options" }?.value
+        val optionsPositional = positional.getOrNull(2)?.takeIf {
+            it is PineExpr.ListLiteral && call.name in setOf("input.int", "input.float", "input.string")
         }
+        val optionsExpression = optionsNamed ?: optionsPositional
         val defaultExpression = argument("defval", 0)
         val rawDefaultText = callArguments(sourceText, call.name).firstOrNull()?.let { raw ->
             splitNamedArgument(raw)?.second ?: raw
@@ -833,6 +824,10 @@ object PineScriptConverter {
         }
 
         if (type == InputType.SOURCE) {
+            if (optionsExpression != null) {
+                errors += "السطر " + line + ": input.source لا يدعم options في هذا المحوّل."
+                return null
+            }
             val sourceName = (defaultExpression as? PineExpr.Identifier)?.name
             if (sourceName == null || sourceName !in setOf("open", "high", "low", "close", "volume")) {
                 errors += "السطر " + line + ": input.source يدعم حالياً مصادر OHLCV المباشرة فقط."
@@ -848,10 +843,67 @@ object PineScriptConverter {
             return null
         }
 
+        val options = if (optionsExpression == null) {
+            emptyList()
+        } else {
+            val list = optionsExpression as? PineExpr.ListLiteral
+            if (list == null) {
+                errors += "السطر " + line + ": options في " + call.name + " يجب أن تكون قائمة حرفية ثابتة بين [ ]."
+                emptyList()
+            } else {
+                if (list.elements.isEmpty() || list.elements.size > 50) {
+                    errors += "السطر " + line + ": options يجب أن تحتوي من 1 إلى 50 قيمة ثابتة."
+                }
+                fun optionValue(expression: PineExpr): PineValue? = when (expression) {
+                    is PineExpr.NumberLiteral -> PineValue.Number(expression.value)
+                    is PineExpr.StringLiteral -> PineValue.Text(expression.value)
+                    is PineExpr.Unary -> {
+                        val number = (expression.operand as? PineExpr.NumberLiteral)?.value
+                        if (number != null && expression.operator in setOf("+", "-")) {
+                            PineValue.Number(if (expression.operator == "-") -number else number)
+                        } else null
+                    }
+                    else -> null
+                }
+                val parsed = list.elements.map { optionValue(it) }
+                if (parsed.any { it == null }) {
+                    errors += "السطر " + line + ": كل قيمة في options يجب أن تكون رقماً أو نصاً ثابتاً؛ القيم الديناميكية غير مدعومة."
+                }
+                val values = parsed.filterNotNull()
+                val compatible = values.all { option ->
+                    when (type) {
+                        InputType.INTEGER -> option is PineValue.Number && option.value.isFinite() && option.value % 1.0 == 0.0
+                        InputType.FLOAT -> option is PineValue.Number && option.value.isFinite()
+                        InputType.STRING -> option is PineValue.Text
+                        else -> false
+                    }
+                }
+                if (!compatible) {
+                    errors += "السطر " + line + ": نوع عناصر options لا يطابق نوع " + call.name + "."
+                }
+                if (values.distinct().size != values.size) {
+                    errors += "السطر " + line + ": لا يجوز تكرار قيمة داخل options."
+                }
+                if (values.isNotEmpty() && defaultValue !in values) {
+                    errors += "السطر " + line + ": القيمة الافتراضية يجب أن تكون إحدى قيم options."
+                }
+                values
+            }
+        }
+
+        val hasNamedBounds = call.arguments.any { it.name in setOf("minval", "maxval", "step") }
+        val hasPositionalBoundsWithNamedOptions = optionsNamed != null && positional.size > 2
+        if (optionsExpression != null && (hasNamedBounds || hasPositionalBoundsWithNamedOptions)) {
+            errors += "السطر " + line + ": لا يجوز الجمع بين options وminval/maxval/step في input.int أو input.float."
+        }
+        if (optionsExpression != null && call.name !in setOf("input.int", "input.float", "input.string")) {
+            errors += "السطر " + line + ": options غير مدعومة لهذا النوع من input."
+        }
+
         val supportsNumericBounds = call.name == "input.int" || call.name == "input.float"
-        val minValue = if (supportsNumericBounds) numberArgument("minval", 2) else null
-        val maxValue = if (supportsNumericBounds) numberArgument("maxval", 3) else null
-        val step = if (supportsNumericBounds) numberArgument("step", 4) else null
+        val minValue = if (supportsNumericBounds && optionsExpression == null) numberArgument("minval", 2) else null
+        val maxValue = if (supportsNumericBounds && optionsExpression == null) numberArgument("maxval", 3) else null
+        val step = if (supportsNumericBounds && optionsExpression == null) numberArgument("step", 4) else null
         if (type == InputType.INTEGER && listOfNotNull(minValue, maxValue, step).any { it % 1.0 != 0.0 }) {
             errors += "السطر " + line + ": minval وmaxval وstep في input.int يجب أن تكون أعداداً صحيحة."
         }
@@ -861,7 +913,10 @@ object PineScriptConverter {
         if (step != null && step <= 0.0) {
             errors += "السطر " + line + ": step يجب أن يكون أكبر من الصفر في " + call.name + "."
         }
-        val definition = InputDefinition(name, title, type, defaultValue, minValue, maxValue, step, sourceLine = line)
+        val definition = InputDefinition(
+            name, title, type, defaultValue, minValue, maxValue, step,
+            options = options, sourceLine = line
+        )
         definition.validationError(defaultValue)?.let { message ->
             errors += "السطر " + line + ": القيمة الافتراضية لـ " + name + " غير صالحة: " + message
         }
@@ -906,12 +961,21 @@ object PineScriptConverter {
         if (firstNamed >= 0 && arguments.drop(firstNamed + 1).any { it.name == null }) {
             errors += "السطر " + line + ": لا يمكن وضع وسيط موضعي بعد وسيط مسمّى في " + functionName + "."
         }
-        val positionalNames = signature.positionalNames.take(positional.size)
+        val optionsOverload = functionName in setOf("input.int", "input.float") &&
+            positional.getOrNull(2) is PineExpr.ListLiteral
+        val optionPositionalNames = listOf("defval", "title", "options", "tooltip", "inline", "group", "confirm", "display")
+        val positionalNames = (if (optionsOverload) optionPositionalNames else signature.positionalNames).take(positional.size)
+        val maxPositional = if (optionsOverload) optionPositionalNames.size else signature.positionalNames.size
+        if (positional.size > maxPositional) {
+            errors += "السطر " + line + ": عدد الوسائط الموضعية غير صالح للدالة " + functionName + "."
+        }
         val duplicated = positionalNames.filter { it in named }
         if (duplicated.isNotEmpty()) {
             errors += "السطر " + line + ": الوسيط مكرر موضعياً ومسمّى في " + functionName + ": " + duplicated.joinToString(", ")
         }
-        val unknown = named.toSet() - signature.positionalNames.toSet()
+        val allowedNames = signature.positionalNames.toSet() +
+            if (functionName in setOf("input.int", "input.float")) setOf("options") else emptySet()
+        val unknown = named.toSet() - allowedNames
         if (unknown.isNotEmpty()) {
             errors += "السطر " + line + ": وسائط مسمّاة غير مدعومة في " + functionName + ": " + unknown.sorted().joinToString(", ")
         }
@@ -927,6 +991,7 @@ object PineScriptConverter {
         is PineExpr.Unary -> collectCallNodes(expression.operand)
         is PineExpr.Binary -> collectCallNodes(expression.left) + collectCallNodes(expression.right)
         is PineExpr.HistoryReference -> collectCallNodes(expression.source)
+        is PineExpr.ListLiteral -> expression.elements.flatMap { collectCallNodes(it) }
         else -> emptyList()
     }
 
@@ -936,6 +1001,7 @@ object PineScriptConverter {
         is PineExpr.Unary -> collectIdentifiers(expression.operand)
         is PineExpr.Binary -> collectIdentifiers(expression.left) + collectIdentifiers(expression.right)
         is PineExpr.HistoryReference -> collectIdentifiers(expression.source)
+        is PineExpr.ListLiteral -> expression.elements.flatMap { collectIdentifiers(it) }
         else -> emptyList()
     }
 
@@ -975,6 +1041,7 @@ object PineScriptConverter {
     private fun splitTopLevel(source: String): List<String> {
         val result = mutableListOf<String>()
         var depth = 0
+        var squareDepth = 0
         var quoted = false
         var escaped = false
         var start = 0
@@ -988,7 +1055,9 @@ object PineScriptConverter {
                     '"' -> quoted = true
                     '(' -> depth++
                     ')' -> depth--
-                    ',' -> if (depth == 0) {
+                    '[' -> squareDepth++
+                    ']' -> squareDepth--
+                    ',' -> if (depth == 0 && squareDepth == 0) {
                         result += source.substring(start, index).trim()
                         start = index + 1
                     }
