@@ -928,17 +928,21 @@ object PineScriptConverter {
         return definition.takeIf { errors.size == startErrors }
     }
 
-    private fun expressionNumber(expression: PineExpr): Double? = when (expression) {
-        is PineExpr.NumberLiteral -> expression.value
-        is PineExpr.Unary -> {
-            val value = (expression.operand as? PineExpr.NumberLiteral)?.value ?: return null
-            when (expression.operator) {
-                "-" -> -value
-                "+" -> value
-                else -> null
+    private fun expressionNumber(expression: PineExpr): Double? {
+        return when (expression) {
+            is PineExpr.NumberLiteral -> expression.value
+            is PineExpr.Unary -> {
+                val value = (expression.operand as? PineExpr.NumberLiteral)?.value
+                value?.let {
+                    when (expression.operator) {
+                        "-" -> -it
+                        "+" -> it
+                        else -> null
+                    }
+                }
             }
+            else -> null
         }
-        else -> null
     }
 
     private fun parseExpression(source: String, line: Int, errors: MutableList<String>): PineExpr? {
