@@ -10,6 +10,8 @@ sealed interface PineExpr {
     data class Unary(val operator: String, val operand: PineExpr) : PineExpr
     data class Binary(val operator: String, val left: PineExpr, val right: PineExpr) : PineExpr
     data class Call(val name: String, val arguments: List<Argument>) : PineExpr
+    /** قائمة حرفية ثابتة؛ تستخدم فقط لخيارات input ولا تُقيّم كتعبير تداول. */
+    data class ListLiteral(val elements: List<PineExpr>) : PineExpr
     /** مرجع سلسلة تاريخي ثابت؛ barsBack=1 يعني قيمة الشمعة السابقة. */
     data class HistoryReference(val source: PineExpr, val barsBack: Int) : PineExpr
     data class Argument(val name: String?, val value: PineExpr)
@@ -164,6 +166,7 @@ object PineExpressionParser {
                 Kind.OPERATOR -> if (token.text == "-" || token.text == "+") {
                     PineExpr.Unary(token.text, expression(6))
                 } else throw PineParseException("عامل غير متوقع: " + token.text)
+                Kind.LEFT_BRACKET -> listLiteral()
                 Kind.LEFT_PAREN -> {
                     val nested = expression()
                     if (!match(Kind.RIGHT_PAREN)) throw PineParseException("قوس إغلاق مفقود.")
@@ -171,6 +174,20 @@ object PineExpressionParser {
                 }
                 else -> throw PineParseException("بداية تعبير غير صالحة: " + token.text)
             }
+        }
+
+        private fun listLiteral(): PineExpr {
+            val elements = mutableListOf<PineExpr>()
+            if (match(Kind.RIGHT_BRACKET)) return PineExpr.ListLiteral(elements)
+            while (true) {
+                elements += expression()
+                if (match(Kind.RIGHT_BRACKET)) break
+                if (!match(Kind.COMMA)) {
+                    throw PineParseException("كان متوقعاً فاصلة أو قوس إغلاق داخل قائمة الخيارات.")
+                }
+                if (match(Kind.RIGHT_BRACKET)) break
+            }
+            return PineExpr.ListLiteral(elements)
         }
 
         private fun call(name: String): PineExpr {
