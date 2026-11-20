@@ -944,6 +944,73 @@ class PineScriptConverterTest {
         assertTrue(result.warnings.any { it.contains("مصدر") })
     }
 
+    @Test fun supportsDerivedOhlcPriceSourcesInInputSourceAndGenericInput() {
+        val bar = PineOhlcBar(
+            time = 1L,
+            open = 10.0,
+            high = 16.0,
+            low = 8.0,
+            close = 14.0,
+            volume = 100.0
+        )
+        val expected = linkedMapOf(
+            "hl2" to 12.0,
+            "hlc3" to (16.0 + 8.0 + 14.0) / 3.0,
+            "ohlc4" to 12.0,
+            "hlcc4" to 13.0
+        )
+
+        expected.forEach { (sourceName, expectedValue) ->
+            val result = PineScriptConverter.convert("""
+                //@version=5
+                indicator("Derived source")
+                src = input.source($sourceName, "Price source")
+                alertcondition(src > 0, title="CALL")
+            """.trimIndent())
+
+            assertTrue("$sourceName: ${result.errors}", result.supported)
+            assertEquals(sourceName, result.inputs.single().sourceExpression)
+            val evaluator = PineScriptEvaluator(bar.let(::listOf), result.compiledVariables, result.inputs)
+            val actual = evaluator.evaluate(PineExpr.Identifier(sourceName), 0) as PineValue.Number
+            assertEquals(sourceName, expectedValue, actual.value, 1e-9)
+            assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 0).action)
+        }
+
+        val generic = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Generic derived source")
+            src = input(hlc3, "Price source")
+            alertcondition(src > 12, title="CALL")
+        """.trimIndent())
+        assertTrue(generic.errors.joinToString("\\n"), generic.supported)
+        assertEquals(PineScriptConverter.InputType.SOURCE, generic.inputs.single().type)
+        assertEquals("hlc3", generic.inputs.single().sourceExpression)
+        val genericEvaluator = PineScriptEvaluator(listOf(bar), generic.compiledVariables, generic.inputs)
+        val genericSource = genericEvaluator.evaluate(PineExpr.Identifier("src"), 0) as PineValue.Number
+        assertEquals(expected.getValue("hlc3"), genericSource.value, 1e-9)
+        assertEquals(PineSignalAction.CALL, genericEvaluator.signalAt(generic, 0).action)
+    }
+
+    @Test fun rejectsUnsupportedInputSourceSymbolsAndReservedDerivedSourceNames() {
+        val unsupported = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Unsupported source")
+            src = input.source(syminfo.tickerid, "Source")
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+        assertFalse(unsupported.supported)
+        assertTrue(unsupported.errors.any { it.contains("input.source") && it.contains("مصادر OHLC") })
+
+        val reserved = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Reserved source name")
+            hl2 = input.source(close, "Source")
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+        assertFalse(reserved.supported)
+        assertTrue(reserved.errors.any { it.contains("اسم input يتعارض") && it.contains("hl2") })
+    }
+
     @Test fun supportsNamedStringAndNumericInputOptionLists() {
         val result = PineScriptConverter.convert("""
             //@version=5
