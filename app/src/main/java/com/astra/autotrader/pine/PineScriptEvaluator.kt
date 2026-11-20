@@ -136,6 +136,10 @@ class PineScriptEvaluator(
             "low" -> return PineValue.Number(bar.low)
             "close" -> return PineValue.Number(bar.close)
             "volume" -> return PineValue.Number(bar.volume)
+            "hl2" -> return PineValue.Number((bar.high + bar.low) / 2.0)
+            "hlc3" -> return PineValue.Number((bar.high + bar.low + bar.close) / 3.0)
+            "ohlc4" -> return PineValue.Number((bar.open + bar.high + bar.low + bar.close) / 4.0)
+            "hlcc4" -> return PineValue.Number((bar.high + bar.low + bar.close + bar.close) / 4.0)
             "true" -> return PineValue.Boolean(true)
             "false" -> return PineValue.Boolean(false)
             "na" -> return null

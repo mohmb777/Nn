@@ -9,6 +9,9 @@ object PineScriptConverter {
 
     enum class InputType { INTEGER, FLOAT, BOOLEAN, STRING, SOURCE }
 
+    /** مصادر السعر المشتقة حتمياً من OHLCV؛ لا تشمل رموزاً خارجية أو رسوماً من مؤشرات أخرى. */
+    private val builtInPriceSources = setOf("open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4", "hlcc4")
+
     data class InputDefinition(
         val name: String,
         val title: String,
@@ -320,7 +323,7 @@ object PineScriptConverter {
                 errors += "السطر " + lineNumber + ": صيغة عبارة Pine غير مدعومة أو لا يمكن تمثيلها بأمان: " + line.take(120)
             }
         }
-        val knownIdentifiers = variables.keys + setOf("open", "high", "low", "close", "volume", "true", "false", "na")
+        val knownIdentifiers = variables.keys + builtInPriceSources + setOf("true", "false", "na")
         val compiledExpressions = buildList {
             addAll(variables.values)
             signals.mapNotNullTo(this) { it.compiledExpression }
@@ -753,7 +756,7 @@ object PineScriptConverter {
         errors: MutableList<String>,
         warnings: MutableList<String>
     ): InputDefinition? {
-        if (name in setOf("open", "high", "low", "close", "volume", "true", "false", "na")) {
+        if (name in builtInPriceSources + setOf("true", "false", "na")) {
             errors += "السطر " + line + ": اسم input يتعارض مع رمز Pine محجوز أو مصدر OHLCV: " + name + "."
             return null
         }
@@ -806,7 +809,7 @@ object PineScriptConverter {
                 is PineExpr.StringLiteral -> InputType.STRING
                 is PineExpr.Identifier -> when {
                     defaultExpression.name == "true" || defaultExpression.name == "false" -> InputType.BOOLEAN
-                    defaultExpression.name in setOf("open", "high", "low", "close", "volume") -> InputType.SOURCE
+                    defaultExpression.name in builtInPriceSources -> InputType.SOURCE
                     else -> null
                 }
                 else -> null
@@ -834,8 +837,8 @@ object PineScriptConverter {
                 return null
             }
             val sourceName = (defaultExpression as? PineExpr.Identifier)?.name
-            if (sourceName == null || sourceName !in setOf("open", "high", "low", "close", "volume")) {
-                errors += "السطر " + line + ": input.source يدعم حالياً مصادر OHLCV المباشرة فقط."
+            if (sourceName == null || sourceName !in builtInPriceSources) {
+                errors += "السطر " + line + ": input.source يدعم حالياً open/high/low/close/volume ومصادر OHLC المشتقة hl2/hlc3/ohlc4/hlcc4 فقط."
                 return null
             }
             warnings += "السطر " + line + ": input.source($sourceName) يبقى على مصدره الافتراضي ولا يمكن تغييره من الواجهة حالياً."
