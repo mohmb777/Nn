@@ -970,7 +970,7 @@ class PineScriptConverterTest {
 
             assertTrue("$sourceName: ${result.errors}", result.supported)
             assertEquals(sourceName, result.inputs.single().sourceExpression)
-            val evaluator = PineScriptEvaluator(bar.let(::listOf), result.compiledVariables, result.inputs)
+            val evaluator = PineScriptEvaluator(listOf(bar), result.compiledVariables, result.inputs)
             val actual = evaluator.evaluate(PineExpr.Identifier(sourceName), 0) as PineValue.Number
             assertEquals(sourceName, expectedValue, actual.value, 1e-9)
             assertEquals(PineSignalAction.CALL, evaluator.signalAt(result, 0).action)
