@@ -930,7 +930,7 @@ class PineScriptConverterTest {
         )
     }
 
-    @Test fun genericInputCanRepresentAnOhlcSourceWithoutMakingItEditable() {
+    @Test fun genericInputCanRepresentOhlcSourceAndExposeSafeSelection() {
         val result = PineScriptConverter.convert("""
             //@version=5
             indicator("Generic source input")
@@ -939,8 +939,12 @@ class PineScriptConverterTest {
         """.trimIndent())
 
         assertTrue(result.errors.joinToString("\\n"), result.supported)
-        assertEquals(PineScriptConverter.InputType.SOURCE, result.inputs.single().type)
-        assertEquals("close", result.inputs.single().sourceExpression)
+        val definition = result.inputs.single()
+        assertEquals(PineScriptConverter.InputType.SOURCE, definition.type)
+        assertEquals("close", definition.sourceExpression)
+        assertNull(definition.validationError(PineValue.Text("hl2")))
+        assertNotNull(definition.validationError(PineValue.Text("request.security")))
+        assertTrue(PineScriptConverter.selectablePriceSources.contains("hl2"))
         assertTrue(result.warnings.any { it.contains("مصدر") })
     }
 
