@@ -1011,6 +1011,72 @@ class PineScriptConverterTest {
         assertTrue(reserved.errors.any { it.contains("اسم input يتعارض") && it.contains("hl2") })
     }
 
+    @Test fun inputSourceSelectionOverridesBuiltInAndDerivedOhlcSeriesSafely() {
+        val converted = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Selectable source")
+            src = input.source(close, "Price source")
+            alertcondition(src > 11, title="CALL")
+        """.trimIndent())
+
+        assertTrue(converted.errors.joinToString("\\n"), converted.supported)
+        val sourceInput = converted.inputs.single()
+        assertEquals("close", sourceInput.sourceExpression)
+        assertNull(sourceInput.validationError(PineValue.Text("hl2")))
+        assertNull(sourceInput.validationError(PineValue.Text("volume")))
+        assertNotNull(sourceInput.validationError(PineValue.Text("syminfo.tickerid")))
+        assertNotNull(sourceInput.validationError(PineValue.Number(12.0)))
+
+        val bar = PineOhlcBar(
+            time = 1L,
+            open = 9.0,
+            high = 14.0,
+            low = 10.0,
+            close = 10.0,
+            volume = 100.0
+        )
+        val defaultSignal = PineScriptEvaluator(
+            listOf(bar), converted.compiledVariables, converted.inputs, converted.inputValues
+        ).signalAt(converted, 0)
+        assertEquals(PineSignalAction.WAIT, defaultSignal.action)
+
+        val selected = converted.copy(inputValues = mapOf("src" to PineValue.Text("hl2")))
+        val selectedSignal = PineScriptEvaluator(
+            listOf(bar), selected.compiledVariables, selected.inputs, selected.inputValues
+        ).signalAt(selected, 0)
+        assertEquals(PineSignalAction.CALL, selectedSignal.action)
+    }
+
+    @Test fun genericInputWithPriceSourceDefaultAlsoAcceptsSafeSourceOverride() {
+        val converted = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Generic source")
+            src = input(hlc3, "Price source")
+            alertcondition(src > 11, title="CALL")
+        """.trimIndent())
+
+        assertTrue(converted.errors.joinToString("\\n"), converted.supported)
+        assertEquals(PineScriptConverter.InputType.SOURCE, converted.inputs.single().type)
+        val bar = PineOhlcBar(
+            time = 1L,
+            open = 9.0,
+            high = 14.0,
+            low = 10.0,
+            close = 10.0,
+            volume = 100.0
+        )
+        val defaultSignal = PineScriptEvaluator(
+            listOf(bar), converted.compiledVariables, converted.inputs, converted.inputValues
+        ).signalAt(converted, 0)
+        assertEquals(PineSignalAction.CALL, defaultSignal.action)
+
+        val selected = converted.copy(inputValues = mapOf("src" to PineValue.Text("open")))
+        val selectedSignal = PineScriptEvaluator(
+            listOf(bar), selected.compiledVariables, selected.inputs, selected.inputValues
+        ).signalAt(selected, 0)
+        assertEquals(PineSignalAction.WAIT, selectedSignal.action)
+    }
+
     @Test fun supportsNamedStringAndNumericInputOptionLists() {
         val result = PineScriptConverter.convert("""
             //@version=5
