@@ -9,8 +9,9 @@ object PineScriptConverter {
 
     enum class InputType { INTEGER, FLOAT, BOOLEAN, STRING, SOURCE }
 
-    /** مصادر السعر المشتقة حتمياً من OHLCV؛ لا تشمل رموزاً خارجية أو رسوماً من مؤشرات أخرى. */
-    private val builtInPriceSources = setOf("open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4", "hlcc4")
+    /** مصادر السعر التي يمكن اختيارها بأمان من شموع OHLCV المحلية فقط. */
+    val selectablePriceSources = listOf("open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4", "hlcc4")
+    private val builtInPriceSources = selectablePriceSources.toSet()
 
     data class InputDefinition(
         val name: String,
@@ -48,7 +49,14 @@ object PineScriptConverter {
                 }
                 InputType.BOOLEAN -> if (value is PineValue.Boolean) null else "القيمة يجب أن تكون منطقية."
                 InputType.STRING -> if (value is PineValue.Text) null else "القيمة يجب أن تكون نصاً."
-                InputType.SOURCE -> "input.source ثابت حالياً ولا يقبل تعديلاً من واجهة المحوّل."
+                InputType.SOURCE -> {
+                    val source = (value as? PineValue.Text)?.value
+                    when {
+                        source == null -> "اختر مصدراً من قائمة OHLCV المدعومة."
+                        source !in selectablePriceSources -> "مصدر السعر غير مدعوم؛ اختر مصدراً من قائمة OHLCV المحلية."
+                        else -> null
+                    }
+                }
             }
             if (typeError != null) return typeError
             if (options.isNotEmpty() && value !in options) {
@@ -841,7 +849,7 @@ object PineScriptConverter {
                 errors += "السطر " + line + ": input.source يدعم حالياً open/high/low/close/volume ومصادر OHLC المشتقة hl2/hlc3/ohlc4/hlcc4 فقط."
                 return null
             }
-            warnings += "السطر " + line + ": input.source($sourceName) يبقى على مصدره الافتراضي ولا يمكن تغييره من الواجهة حالياً."
+            warnings += "السطر " + line + ": مصدر Pine input.source($sourceName) قابل للتبديل محلياً بين مصادر OHLCV والمصادر المشتقة المدعومة فقط."
             return if (errors.size == startErrors) InputDefinition(
                 name, title, type, null, sourceExpression = sourceName, sourceLine = line
             ) else null

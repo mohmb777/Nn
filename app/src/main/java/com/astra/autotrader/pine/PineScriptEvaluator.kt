@@ -126,6 +126,13 @@ class PineScriptEvaluator(
     private fun identifier(name: String, index: Int, visiting: Set<String>): PineValue? {
         val inputDefinition = inputDefinitionsByName[name]
         val inputOverride = inputValues[name]
+        if (inputDefinition?.type == PineScriptConverter.InputType.SOURCE &&
+            inputOverride is PineValue.Text &&
+            inputDefinition.validationError(inputOverride) == null
+        ) {
+            // نص الاختيار هو اسم مصدر من قائمة بيضاء؛ نحلّه كرمز OHLCV لا كنص تداول.
+            return identifier(inputOverride.value, index, visiting)
+        }
         if (inputDefinition != null && inputOverride != null && inputDefinition.validationError(inputOverride) == null) {
             return inputOverride
         }
