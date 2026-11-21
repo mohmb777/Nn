@@ -849,7 +849,7 @@ object PineScriptConverter {
                 errors += "السطر " + line + ": input.source يدعم حالياً open/high/low/close/volume ومصادر OHLC المشتقة hl2/hlc3/ohlc4/hlcc4 فقط."
                 return null
             }
-            warnings += "السطر " + line + ": input.source($sourceName) قابل للتبديل محلياً بين مصادر OHLCV والمصادر المشتقة المدعومة فقط."
+            warnings += "السطر " + line + ": مصدر Pine input.source($sourceName) قابل للتبديل محلياً بين مصادر OHLCV والمصادر المشتقة المدعومة فقط."
             return if (errors.size == startErrors) InputDefinition(
                 name, title, type, null, sourceExpression = sourceName, sourceLine = line
             ) else null
