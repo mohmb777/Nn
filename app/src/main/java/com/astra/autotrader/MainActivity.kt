@@ -525,9 +525,35 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                             )
                         }
                         PineScriptConverter.InputType.SOURCE -> {
-                            InfoCard(
-                                pineInput.title,
-                                "مصدر Pine ثابت: ${pineInput.sourceExpression ?: "غير محدد"} — لا يمكن تغييره من الواجهة حالياً."
+                            val selectedSource = (inputOverrides[pineInput.name] as? PineValue.Text)?.value
+                                ?: pineInput.sourceExpression
+                                ?: "close"
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(
+                                    onClick = { optionsExpanded = true },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("${pineInput.title}: $selectedSource")
+                                }
+                                DropdownMenu(
+                                    expanded = optionsExpanded,
+                                    onDismissRequest = { optionsExpanded = false }
+                                ) {
+                                    PineScriptConverter.selectablePriceSources.forEach { sourceName ->
+                                        DropdownMenuItem(
+                                            text = { Text(sourceName) },
+                                            onClick = {
+                                                optionsExpanded = false
+                                                updateInputValue(pineInput, PineValue.Text(sourceName))
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                "اختر مصدراً محلياً من OHLCV أو متوسطات السعر المشتقة؛ لا يتم جلب بيانات خارجية.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
