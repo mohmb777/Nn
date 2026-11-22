@@ -68,6 +68,12 @@ object PineRiskAnalyzer {
             { "offset السالب يعيد رسم العلامة بصرياً على شمعة سابقة؛ لا يستطيع المحوّل الحفاظ على توقيت العلامة والإشارة معاً، لذلك رُفض." }
         ),
         Rule(
+            "DYNAMIC_HISTORY_OFFSET",
+            PineRiskSeverity.ERROR,
+            Regex("""\b[A-Za-z_][A-Za-z0-9_]*\s*\[\s*[A-Za-z_][A-Za-z0-9_]*(?:\s*[+\-*/]\s*(?:[A-Za-z_][A-Za-z0-9_]*|\d+))*\s*]"""),
+            { "فهرسة تاريخية ديناميكية مثل close[period] أو close[bar_index - 1] غير مدعومة؛ يلزم رقم صحيح ثابت بين 0 و500 حتى لا نخمن أي شمعة ستُقرأ." }
+        ),
+        Rule(
             "HISTORY_INDEX_WARMUP",
             PineRiskSeverity.WARNING,
             Regex("""\b[A-Za-z_][A-Za-z0-9_]*\s*\[\s*\d+\s*]"""),
