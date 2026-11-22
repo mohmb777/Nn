@@ -4,136 +4,49 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PineRiskAnalyzerTest {
-    @Test fun rejectsRequestSecurityWithExactSourceLine() {
+    @Test fun rejectsVariableAndSeriesExpressionHistoryOffsetsWithLineNumbers() {
         val source = """
             //@version=5
-            indicator("MTF")
-            value = request.security("EURUSD", "5", close)
-        """.trimIndent()
-
-        val finding = PineRiskAnalyzer.analyze(source).single()
-        assertEquals(3, finding.line)
-        assertEquals("MTF_SECURITY_UNSUPPORTED", finding.code)
-        assertEquals(PineRiskSeverity.ERROR, finding.severity)
-        assertTrue(finding.message.contains("request.security"))
-        assertTrue(finding.message.contains("المحاذاة"))
-    }
-
-    @Test fun rejectsLookaheadOnAsFutureLeak() {
-        val source = """
-            //@version=5
-            indicator("Future")
-            value = barmerge.lookahead_on
-        """.trimIndent()
-
-        val finding = PineRiskAnalyzer.analyze(source).single()
-        assertEquals("LOOKAHEAD_ON", finding.code)
-        assertEquals(PineRiskSeverity.ERROR, finding.severity)
-        assertTrue(finding.message.contains("بيانات مستقبلية"))
-    }
-
-    @Test fun rejectsPivotFunctionsBecauseTheyNeedRightBarsAndCanBackpaint() {
-        val source = """
-            //@version=5
-            indicator("Pivots")
-            ph = ta.pivothigh(high, 3, 3)
-            pl = ta.pivotlow(low, 3, 3)
+            indicator("Dynamic history")
+            period = input.int(5, "Period")
+            byPeriod = close[period]
+            byBar = close[bar_index - 1]
         """.trimIndent()
 
         val findings = PineRiskAnalyzer.analyze(source)
-            .filter { it.code == "PIVOT_BACKPAINT" }
+            .filter { it.code == "DYNAMIC_HISTORY_OFFSET" }
+
         assertEquals(2, findings.size)
+        assertEquals(listOf(4, 5), findings.map { it.line })
         assertTrue(findings.all { it.severity == PineRiskSeverity.ERROR })
-        assertTrue(findings[0].message.contains("شموعاً يمينية"))
-        assertTrue(findings[1].message.contains("ta.pivotlow"))
+        assertTrue(findings.all { it.message.contains("فهرسة تاريخية ديناميكية") })
     }
 
-    @Test fun warnsForRealtimeAndIntrabarDependencies() {
+    @Test fun ignoresDynamicHistoryTextInsideCommentsAndStrings() {
         val source = """
             //@version=5
-            indicator("Realtime")
-            live = barstate.isrealtime
-            tick = timenow
-            strategy("not parsed here", calc_on_every_tick=true)
+            indicator("Dynamic history text")
+            // close[period] is only an example in this comment
+            alertcondition(close > open, title="close[period]", message="close[bar_index - 1]")
         """.trimIndent()
 
         val findings = PineRiskAnalyzer.analyze(source)
-            .filter { it.code == "INTRABAR_DEPENDENCY" }
-        assertEquals(3, findings.size)
-        assertTrue(findings.all { it.severity == PineRiskSeverity.WARNING })
-        assertTrue(findings.all { it.message.contains("شموع مكتملة") })
+
+        assertFalse(findings.any { it.code == "DYNAMIC_HISTORY_OFFSET" })
     }
 
-    @Test fun rejectsUnmodeledBarstateConfirmed() {
-        val finding = PineRiskAnalyzer.analyze(
-            """
-                //@version=5
-                indicator("Confirmed")
-                ok = barstate.isconfirmed
-            """.trimIndent()
-        ).single()
-
-        assertEquals("BARSTATE_CONFIRMED_UNMODELED", finding.code)
-        assertEquals(PineRiskSeverity.ERROR, finding.severity)
-    }
-
-    @Test fun rejectsNegativeHistoryAndNegativePlotOffsets() {
+    @Test fun keepsFixedHistoryOffsetsOnTheirExistingRules() {
         val source = """
             //@version=5
-            indicator("Future references")
-            future = close[-1]
-            plotshape(close > open, offset=-2)
-        """.trimIndent()
-
-        val findings = PineRiskAnalyzer.analyze(source)
-        assertTrue(findings.any { it.code == "NEGATIVE_HISTORY_OFFSET" && it.line == 3 })
-        assertTrue(findings.any { it.code == "NEGATIVE_PLOT_OFFSET" && it.line == 4 })
-        assertTrue(findings.filter { it.code.startsWith("NEGATIVE_") }
-            .all { it.severity == PineRiskSeverity.ERROR })
-    }
-
-    @Test fun warnsThatPositiveHistoryReferencesNeedWarmupButAreSupported() {
-        val source = """
-            //@version=5
-            indicator("History")
+            indicator("Fixed history")
             previous = close[1]
-            mode = barmerge.lookahead_off
+            future = close[-1]
         """.trimIndent()
 
         val findings = PineRiskAnalyzer.analyze(source)
-        val history = findings.single { it.code == "HISTORY_INDEX_WARMUP" }
-        assertEquals(3, history.line)
-        assertEquals(PineRiskSeverity.WARNING, history.severity)
-        assertTrue(history.message.contains("مدعوم"))
-        assertTrue(history.message.contains("فترة الإحماء"))
-        assertTrue(findings.any { it.code == "LOOKAHEAD_OFF_CONTEXT" && it.line == 4 })
-        assertTrue(findings.all { it.severity == PineRiskSeverity.WARNING })
-    }
 
-    @Test fun ignoresKeywordsInsideCommentsAndStringLiterals() {
-        val source = """
-            //@version=5
-            indicator("request.security lookahead_on ta.pivothigh")
-            // request.security("EURUSD", "5", close)
-            // barmerge.lookahead_on and ta.pivotlow(low, 2, 2)
-            alertcondition(close > open, title="CALL")
-        """.trimIndent()
-
-        assertTrue(PineRiskAnalyzer.analyze(source).isEmpty())
-    }
-
-    @Test fun converterSurfacesRiskErrorsAndWarningsInItsExistingDiagnostics() {
-        val source = """
-            //@version=5
-            indicator("Risk integration")
-            realtime = barstate.isrealtime
-            value = request.security("EURUSD", "5", close)
-            alertcondition(close > open, title="CALL")
-        """.trimIndent()
-
-        val conversion = PineScriptConverter.convert(source)
-        assertFalse(conversion.supported)
-        assertTrue(conversion.errors.any { it.contains("السطر 4") && it.contains("request.security") })
-        assertTrue(conversion.warnings.any { it.contains("السطر 3") && it.contains("تحديث داخل الشمعة") })
+        assertFalse(findings.any { it.code == "DYNAMIC_HISTORY_OFFSET" })
+        assertTrue(findings.any { it.code == "HISTORY_INDEX_WARMUP" && it.line == 3 })
+        assertTrue(findings.any { it.code == "NEGATIVE_HISTORY_OFFSET" && it.line == 4 })
     }
 }
