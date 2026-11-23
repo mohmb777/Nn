@@ -35,6 +35,85 @@ class PineScriptConverterTest {
         assertTrue(result.warnings.any { it.contains("WAIT") || it.contains("CALL أو PUT") })
     }
 
+    @Test fun rejectsStrategyExecutionPropertiesNotRepresentedByTheReplayEngine() {
+        val unsupportedSettings = listOf(
+            "pyramiding=2",
+            "process_orders_on_close=true",
+            "calc_on_order_fills=true",
+            "calc_on_every_tick=true",
+            "commission_value=0.1",
+            "slippage=2",
+            "default_qty_value=10",
+            "initial_capital=5000"
+        )
+
+        unsupportedSettings.forEach { setting ->
+            val result = PineScriptConverter.convert("""
+                //@version=5
+                strategy("Execution settings", $setting)
+                enter = close > open
+                strategy.entry("Long", strategy.long, when=enter)
+            """.trimIndent())
+
+            assertFalse("$setting must not be silently ignored", result.supported)
+            assertTrue(
+                "$setting should be named in the diagnostic: ${result.errors}",
+                result.errors.any { it.contains(setting.substringBefore("=")) && it.contains("strategy()") }
+            )
+        }
+    }
+
+    @Test fun acceptsDisplayOnlyStrategyPropertiesButRejectsUnknownDeclarationArguments() {
+        val displayOnly = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Display", overlay=true, precision=2, max_labels_count=50)
+            enter = close > open
+            strategy.entry("Long", strategy.long, when=enter)
+        """.trimIndent())
+        assertTrue(displayOnly.errors.joinToString("\n"), displayOnly.supported)
+
+        val unknown = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Unknown", mystery_mode=true)
+            enter = close > open
+            strategy.entry("Long", strategy.long, when=enter)
+        """.trimIndent())
+        assertFalse(unknown.supported)
+        assertTrue(unknown.errors.any { it.contains("mystery_mode") && it.contains("strategy()") })
+    }
+
+    @Test fun rejectsIndicatorTimeframeAndTimeframeGapsWithDeclarationLine() {
+        val multiTimeframe = PineScriptConverter.convert("""
+            //@version=5
+            indicator(
+                "MTF",
+                timeframe="5"
+            )
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+        assertFalse(multiTimeframe.supported)
+        assertTrue(multiTimeframe.errors.any {
+            it.contains("السطر 2") && it.contains("indicator(timeframe") && it.contains("الإطار الزمني")
+        })
+
+        val gaps = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Gaps", timeframe_gaps=false)
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+        assertFalse(gaps.supported)
+        assertTrue(gaps.errors.any { it.contains("timeframe_gaps") && it.contains("فجوات") })
+    }
+
+    @Test fun acceptsChartTimeframeWhenIndicatorTimeframeIsExplicitlyEmpty() {
+        val result = PineScriptConverter.convert("""
+            //@version=5
+            indicator("Chart timeframe", timeframe="")
+            alertcondition(close > open, title="CALL")
+        """.trimIndent())
+        assertTrue(result.errors.joinToString("\n"), result.supported)
+    }
+
     @Test fun rejectsUnsupportedCallsAndMissingDeclaration() {
         val result = PineScriptConverter.convert("""
             //@version=5
