@@ -713,7 +713,7 @@ object PineScriptConverter {
                 if (timeframe == null) {
                     errors += "السطر " + line + ": indicator(timeframe=...) يجب أن يكون نصاً ثابتاً؛ لم يتم تخمين الإطار الزمني."
                 } else if (timeframe.value.isNotEmpty()) {
-                    errors += "السطر " + line + ": indicator(timeframe=...) يطلب إطاراً زمنياً مختلفاً؛ محاذاة الشموع والفجوات غير مدعومة في ملف OHLC المحلي."
+                    errors += "السطر " + line + ": indicator(timeframe=...) يطلب الإطار الزمني المختلف عن ملف OHLC المحلي؛ محاذاة الشموع والفجوات غير مدعومة."
                 }
             }
             if ("timeframe_gaps" in named) {
