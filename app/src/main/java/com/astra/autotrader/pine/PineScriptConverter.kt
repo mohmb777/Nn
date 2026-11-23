@@ -206,6 +206,17 @@ object PineScriptConverter {
         if (kind == null) errors += "لم يتم العثور على indicator() أو strategy() في بداية سطر."
         val title = declaration?.let { Regex("""\(\s*"([^"]+)"""").find(it)?.groupValues?.get(1) }
 
+        val declarationIndex = lines.indexOfFirst { it == declaration }
+        if (declaration != null && kind != null) {
+            validateDeclarationArguments(
+                declaration,
+                if (kind == ScriptKind.STRATEGY) "strategy" else "indicator",
+                declarationIndex + 1,
+                kind,
+                errors
+            )
+        }
+
         PineRiskAnalyzer.analyze(source).forEach { finding ->
             val diagnostic = "السطر " + finding.line + ": " + finding.message
             when (finding.severity) {
@@ -632,6 +643,82 @@ object PineScriptConverter {
         return (parsed as? PineExpr.StringLiteral)?.value ?: run {
             errors += "السطر " + line + ": " + label + " يجب أن يكون نصاً ثابتاً بين علامتي اقتباس."
             null
+        }
+    }
+
+    private val safeDeclarationDisplayArguments = setOf(
+        "shorttitle", "overlay", "format", "precision", "scale",
+        "explicit_plot_zorder", "max_lines_count", "max_labels_count",
+        "max_boxes_count", "max_polylines_count"
+    )
+
+    /**
+     * يتحقق من إعدادات indicator()/strategy() التي لم تدخل نموذج المحاكاة.
+     * يسمح فقط بالعنوان ومعاملات العرض المعروفة؛ إعدادات الزمن أو تنفيذ الأوامر
+     * تُرفض حتى لا تتغير دلالات Pine بصمت.
+     */
+    private fun validateDeclarationArguments(
+        declaration: String,
+        functionName: String,
+        line: Int,
+        kind: ScriptKind,
+        errors: MutableList<String>
+    ) {
+        val rawArguments = callArguments(declaration, functionName)
+        if (rawArguments.isEmpty()) {
+            errors += "السطر " + line + ": " + functionName + "() يتطلب عنواناً نصياً ثابتاً."
+            return
+        }
+
+        val duplicates = duplicateNamedKeys(rawArguments)
+        if (duplicates.isNotEmpty()) {
+            errors += "السطر " + line + ": معاملات مكررة في " + functionName + "(): " +
+                duplicates.sorted().joinToString(", ")
+        }
+
+        val (positional, named) = splitArguments(rawArguments)
+        if (positional.isEmpty()) {
+            errors += "السطر " + line + ": يجب تمرير عنوان " + functionName + "() كنص موضعي ثابت."
+        } else {
+            stringLiteral(positional.first(), line, "title", errors)
+        }
+        if (positional.size > 1) {
+            errors += "السطر " + line + ": المعاملات الموضعية بعد عنوان " + functionName +
+                "() غير مدعومة؛ استخدم أسماء المعاملات المدعومة صراحة."
+        }
+
+        val firstNamed = rawArguments.indexOfFirst { splitNamedArgument(it) != null }
+        if (firstNamed >= 0 && rawArguments.drop(firstNamed + 1).any { splitNamedArgument(it) == null }) {
+            errors += "السطر " + line + ": لا يمكن وضع معامل موضعي بعد معامل مسمّى في " + functionName + "()."
+        }
+
+        val allowed = safeDeclarationDisplayArguments +
+            if (kind == ScriptKind.INDICATOR) setOf("timeframe", "timeframe_gaps") else emptySet()
+        val unknown = named.keys - allowed
+        if (unknown.isNotEmpty()) {
+            val label = if (kind == ScriptKind.STRATEGY) "إعدادات strategy() المؤثرة في تنفيذ الأوامر أو غير المعروفة"
+                else "وسائط indicator() غير المدعومة"
+            errors += "السطر " + line + ": " + label + ": " +
+                unknown.sorted().joinToString(", ") +
+                "؛ لا يمكن تجاهلها لأن ذلك قد يغيّر نتائج Pine الأصلية."
+        }
+
+        if (kind == ScriptKind.INDICATOR) {
+            named["timeframe"]?.let { rawTimeframe ->
+                val timeframe = try {
+                    PineExpressionParser.parse(rawTimeframe) as? PineExpr.StringLiteral
+                } catch (_: PineParseException) {
+                    null
+                }
+                if (timeframe == null) {
+                    errors += "السطر " + line + ": indicator(timeframe=...) يجب أن يكون نصاً ثابتاً؛ لم يتم تخمين الإطار الزمني."
+                } else if (timeframe.value.isNotEmpty()) {
+                    errors += "السطر " + line + ": indicator(timeframe=...) يطلب الإطار الزمني المختلف عن ملف OHLC المحلي؛ محاذاة الشموع والفجوات غير مدعومة."
+                }
+            }
+            if ("timeframe_gaps" in named) {
+                errors += "السطر " + line + ": indicator(timeframe_gaps=...) غير مدعوم؛ سلوك فجوات الإطار الزمني غير ممثل."
+            }
         }
     }
 
