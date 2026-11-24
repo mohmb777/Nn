@@ -473,7 +473,7 @@ class PineScriptConverterTest {
         assertTrue(exit.errors.any { it.contains("وسائط strategy.exit غير المدعومة") })
     }
 
-    @Test fun rejectsStrategyOrdersInsideIndicatorsAndUntranslatedCloseOrders() {
+    @Test fun rejectsStrategyOrdersInsideIndicatorsAndConvertsSupportedCloseOrders() {
         val indicator = PineScriptConverter.convert("""
             //@version=5
             indicator("Wrong kind")
@@ -485,10 +485,22 @@ class PineScriptConverterTest {
         val closeOrder = PineScriptConverter.convert("""
             //@version=5
             strategy("Close")
-            strategy.close("Long")
+            enter = close > open
+            strategy.entry("Long", strategy.long, when=enter)
+            if close < open
+                strategy.close("Long")
         """.trimIndent())
-        assertFalse(closeOrder.supported)
-        assertTrue(closeOrder.errors.any { it.contains("strategy.order وstrategy.close") })
+        assertTrue(closeOrder.errors.joinToString(), closeOrder.supported)
+        assertEquals(1, closeOrder.closes.size)
+        assertEquals("Long", closeOrder.closes.single().id)
+
+        val unsupportedOrder = PineScriptConverter.convert("""
+            //@version=5
+            strategy("Order")
+            strategy.order("Long", strategy.long)
+        """.trimIndent())
+        assertFalse(unsupportedOrder.supported)
+        assertTrue(unsupportedOrder.errors.any { it.contains("strategy.order غير مدعوم") })
     }
 
     @Test fun evaluatesRelativeExitTicksWithoutConvertingThemToPrices() {
