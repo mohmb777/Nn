@@ -582,6 +582,14 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     )
                 }
             }
+            converted.closes.forEach { close ->
+                item {
+                    InfoCard(
+                        "إغلاق سوقي ${close.id}",
+                        "السطر ${close.sourceLine}: شرط الإغلاق: ${close.conditionText} — يُحاكى عند افتتاح الشمعة التالية فقط."
+                    )
+                }
+            }
             converted.exits.forEach { exit ->
                 item {
                     InfoCard(
@@ -630,7 +638,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                         },
                         enabled = converted.supported && dataset != null && inputsValid,
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("محاكاة الاستراتيجية مع SL/TP") }
+                    ) { Text("محاكاة الاستراتيجية — SL/TP أو إغلاق شرطي") }
                 }
                 strategyReplayReport?.let { strategyReport ->
                     item {
@@ -670,8 +678,13 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                     if (strategyReport.success) {
                         strategyReport.trades.takeLast(20).forEach { trade ->
                             item {
+                                val exitLabel = when (trade.exitType) {
+                                    com.astra.autotrader.pine.PineStrategyExitType.STOP -> "وقف خسارة"
+                                    com.astra.autotrader.pine.PineStrategyExitType.LIMIT -> "هدف سعري"
+                                    com.astra.autotrader.pine.PineStrategyExitType.MARKET_CLOSE -> "إغلاق سوقي"
+                                }
                                 InfoCard(
-                                    "محاكاة ${trade.direction} — ${trade.exitType}",
+                                    "محاكاة ${trade.direction} — $exitLabel",
                                     "إشارة: ${trade.signalIndex + 1} — دخول: ${trade.entryIndex + 1} بسعر " +
                                         String.format(java.util.Locale.US, "%.5f", trade.entryPrice) +
                                         " — خروج: ${trade.exitIndex + 1} بسعر " +
@@ -697,6 +710,14 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                             item {
                                 Text(
                                     "إشارة دخول عند الشمعة ${pendingIndex + 1} لم تتوفر بعدها شمعة تالية لتعبئة الدخول.",
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        }
+                        strategyReport.pendingCloseSignalIndex?.let { pendingIndex ->
+                            item {
+                                Text(
+                                    "شرط إغلاق عند الشمعة ${pendingIndex + 1} ينتظر افتتاح الشمعة التالية؛ لم تُفترض تعبئة بعد نهاية الملف.",
                                     color = MaterialTheme.colorScheme.tertiary
                                 )
                             }

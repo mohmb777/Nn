@@ -279,4 +279,127 @@ class PineStrategyReplayEngineTest {
         assertEquals(0, report.mismatchCount)
         assertEquals(100.0, report.matchRatePercent!!, 0.0)
     }
+
+    @Test fun parsesConditionalStrategyCloseAndFillsAtNextBarOpen() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Conditional close")
+                enter = close > open
+                leave = close < open
+                strategy.entry("Entry", strategy.long, when=enter)
+                if leave
+                    strategy.close("Entry", comment="Exit condition")
+            """.trimIndent()
+        )
+        assertTrue(converted.errors.joinToString(), converted.supported)
+        assertEquals(1, converted.closes.size)
+        assertEquals("Entry", converted.closes.single().id)
+        assertEquals("leave", converted.closes.single().conditionText)
+
+        val report = PineStrategyReplayEngine.run(converted, dataset(
+            bar(1_000, 100.0, 102.0, 99.5, 101.0),
+            bar(2_000, 102.0, 103.0, 101.0, 101.5),
+            bar(3_000, 101.0, 102.0, 100.0, 101.25)
+        ))
+        assertTrue(report.errorArabic ?: "simulation failed", report.success)
+        assertEquals(1, report.entrySignals)
+        assertEquals(1, report.trades.size)
+        val trade = report.trades.single()
+        assertEquals(1, trade.entryIndex)
+        assertEquals(2, trade.exitIndex)
+        assertEquals(102.0, trade.entryPrice, 1e-9)
+        assertEquals(101.0, trade.exitPrice, 1e-9)
+        assertEquals(PineStrategyExitType.MARKET_CLOSE, trade.exitType)
+        assertEquals(-1.0, trade.profitPoints, 1e-9)
+        assertNull(report.openPosition)
+        assertNull(report.pendingCloseSignalIndex)
+    }
+
+    @Test fun keepsConditionalClosePendingWhenNoFollowingBarExists() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Pending close")
+                enter = close > open
+                leave = close < open
+                strategy.entry("Entry", strategy.long, when=enter)
+                if leave
+                    strategy.close("Entry")
+            """.trimIndent()
+        )
+        val report = PineStrategyReplayEngine.run(converted, dataset(
+            bar(1_000, 100.0, 102.0, 99.5, 101.0),
+            bar(2_000, 102.0, 103.0, 101.0, 101.5)
+        ))
+        assertTrue(report.errorArabic ?: "simulation failed", report.success)
+        assertNotNull(report.openPosition)
+        assertEquals(1, report.pendingCloseSignalIndex)
+        assertTrue(report.trades.isEmpty())
+    }
+
+    @Test fun rejectsCloseWithMismatchedEntryIdOrCombinedExitOrder() {
+        val mismatched = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Mismatched close")
+                enter = close > open
+                strategy.entry("Entry", strategy.long, when=enter)
+                strategy.close("Other")
+            """.trimIndent()
+        )
+        val combined = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Combined exits")
+                enter = close > open
+                strategy.entry("Entry", strategy.long, when=enter)
+                strategy.exit("Risk", from_entry="Entry", stop=99)
+                strategy.close("Entry")
+            """.trimIndent()
+        )
+        assertTrue(mismatched.errors.joinToString(), mismatched.supported)
+        assertTrue(combined.errors.joinToString(), combined.supported)
+        val bars = dataset(bar(1_000, 100.0, 102.0, 99.5, 101.0))
+        assertTrue(PineStrategyReplayEngine.run(mismatched, bars).errorArabic!!.contains("لا يطابق"))
+        assertTrue(PineStrategyReplayEngine.run(combined, bars).errorArabic!!.contains("الجمع"))
+    }
+
+    @Test fun rejectsUnsupportedStrategyCloseSizingAndImmediateExecution() {
+        val quantity = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Close quantity")
+                enter = close > open
+                strategy.entry("Entry", strategy.long, when=enter)
+                strategy.close("Entry", qty=1)
+            """.trimIndent()
+        )
+        val immediate = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Immediate close")
+                enter = close > open
+                strategy.entry("Entry", strategy.long, when=enter)
+                strategy.close("Entry", immediately=true)
+            """.trimIndent()
+        )
+        assertFalse(quantity.supported)
+        assertTrue(quantity.errors.joinToString().contains("qty"))
+        assertFalse(immediate.supported)
+        assertTrue(immediate.errors.joinToString().contains("immediately=false"))
+    }
+
+    @Test fun rejectsStrategyCloseInsideIndicator() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                indicator("Invalid close")
+                strategy.close("Entry")
+            """.trimIndent()
+        )
+        assertFalse(converted.supported)
+        assertTrue(converted.errors.joinToString().contains("داخل indicator"))
+    }
+
 }
