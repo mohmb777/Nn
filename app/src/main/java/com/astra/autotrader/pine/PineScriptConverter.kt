@@ -100,6 +100,14 @@ object PineScriptConverter {
         val compiledProfitTicks: PineExpr?
     )
 
+    /** إغلاق سوقي مشروط؛ لا يحمل حجماً ولا ينفذ فوراً داخل الشمعة. */
+    data class CloseRule(
+        val id: String,
+        val conditionText: String,
+        val sourceLine: Int,
+        val compiledCondition: PineExpr
+    )
+
     data class Conversion(
         val kind: ScriptKind?,
         val title: String?,
@@ -113,7 +121,8 @@ object PineScriptConverter {
         val supported: Boolean,
         val compiledVariables: Map<String, PineExpr>,
         val inputs: List<InputDefinition> = emptyList(),
-        val inputValues: Map<String, PineValue> = emptyMap()
+        val inputValues: Map<String, PineValue> = emptyMap(),
+        val closes: List<CloseRule> = emptyList()
     )
 
     private val allowedCalls = setOf(
@@ -170,6 +179,7 @@ object PineScriptConverter {
         val signals = mutableListOf<SignalRule>()
         val entries = mutableListOf<EntryRule>()
         val exits = mutableListOf<ExitRule>()
+        val closes = mutableListOf<CloseRule>()
         val inputs = mutableListOf<InputDefinition>()
         val variables = linkedMapOf<String, PineExpr>()
 
@@ -179,7 +189,7 @@ object PineScriptConverter {
             version: Int? = null
         ) = Conversion(kind, title, version, declarations.toList(), signals.toList(),
             entries.toList(), exits.toList(), warnings.distinct(), errors.distinct(),
-            errors.isEmpty(), variables.toMap(), inputs.toList(), emptyMap())
+            errors.isEmpty(), variables.toMap(), inputs.toList(), emptyMap(), closes.toList())
 
         if (source.isBlank()) {
             errors += "أدخل كود Pine Script أولاً."
@@ -227,9 +237,9 @@ object PineScriptConverter {
         if (Regex("""\b(for|while|switch|import|export)\b""").containsMatchIn(source)) {
             errors += "الحلقات وswitch والاستيراد/التصدير خارج نطاق المحلل الآمن الحالي."
         }
-        if (Regex("""\b(strategy\.order|strategy\.close)\s*\(""").containsMatchIn(source)) {
-            warnings += "تم العثور على أمر استراتيجية خارج النطاق المدعوم؛ لم يتم تحويله أو تنفيذه."
-            errors += "strategy.order وstrategy.close غير مدعومين حالياً؛ استخدم فقط strategy.entry وstrategy.exit بالوسائط المعلنة في هذا المحوّل."
+        if (Regex("""\bstrategy\.order\s*\(""").containsMatchIn(source)) {
+            warnings += "تم العثور على strategy.order خارج النطاق المدعوم؛ لم يتم تحويله أو تنفيذه."
+            errors += "strategy.order غير مدعوم حالياً؛ لا يمكن تمثيل دلالات أمره بأمان في المحاكي."
         }
 
         val statements = flattenSimpleIfBlocks(lines, errors)
@@ -286,6 +296,11 @@ object PineScriptConverter {
                 return@forEach
             }
 
+            if (Regex("""^strategy\.close\s*\(""").containsMatchIn(line)) {
+                parseStrategyClose(callArguments(line, "strategy.close"), lineNumber, kind, guardText, closes, errors)
+                return@forEach
+            }
+
             if (Regex("""^alertcondition\s*\(""").containsMatchIn(line)) {
                 val args = callArguments(line, "alertcondition")
                 val baseExpression = args.firstOrNull()
@@ -337,7 +352,7 @@ object PineScriptConverter {
                     }
                 }
             } else if (calls.none { it !in allowedCalls } &&
-                calls.none { it == "strategy.close" || it == "strategy.order" }
+                calls.none { it == "strategy.order" }
             ) {
                 errors += "السطر " + lineNumber + ": صيغة عبارة Pine غير مدعومة أو لا يمكن تمثيلها بأمان: " + line.take(120)
             }
@@ -352,6 +367,7 @@ object PineScriptConverter {
             exits.mapNotNullTo(this) { it.compiledLimit }
             exits.mapNotNullTo(this) { it.compiledLossTicks }
             exits.mapNotNullTo(this) { it.compiledProfitTicks }
+            closes.mapTo(this) { it.compiledCondition }
         }
         val unknownIdentifiers = compiledExpressions
             .flatMap { collectIdentifiers(it) }
@@ -361,6 +377,12 @@ object PineScriptConverter {
             errors += "المتغير أو الرمز غير المدعوم: " + identifier + "؛ لا يمكن تقييمه من OHLC أو تعريفات السكربت الحالية."
         }
 
+        if (closes.size > 1) {
+            errors += "يدعم المحاكي strategy.close واحدة فقط؛ تعدد شروط الإغلاق غير مدعوم حالياً."
+        }
+        if (closes.isNotEmpty()) {
+            warnings += "strategy.close مدعوم كإغلاق سوقي لقاعدة الدخول الوحيدة عند افتتاح الشمعة التالية؛ لا يمكن جمعه مع strategy.exit في هذا الإصدار."
+        }
         if (signals.isEmpty() && entries.isEmpty()) warnings += "لم يتم العثور على alertcondition أو plotshape/plotchar أو strategy.entry قابل للتحويل إلى إشارة."
         if (entries.any { it.conditionText == "true" }) {
             warnings += "يوجد strategy.entry بلا شرط when؛ اعتُبر شرطه true دائماً. هذا لا يحاكي حالة المركز أو pyramiding أو تكرار أوامر المنصة."
@@ -517,8 +539,8 @@ object PineScriptConverter {
 
             val bodyIndex = bodyLines.single()
             val body = clean(bodyIndex)
-            if (!Regex("""^(strategy\.entry|alertcondition|plotshape|plotchar)\s*\(""").containsMatchIn(body)) {
-                errors += "السطر " + (bodyIndex + 1) + ": داخل if/else يُسمح حالياً بـ strategy.entry أو alertcondition أو plotshape أو plotchar فقط؛ لم تُحوّل العبارة."
+            if (!Regex("""^(strategy\.entry|strategy\.close|alertcondition|plotshape|plotchar)\s*\(""").containsMatchIn(body)) {
+                errors += "السطر " + (bodyIndex + 1) + ": داخل if/else يُسمح حالياً بـ strategy.entry أو strategy.close أو alertcondition أو plotshape أو plotchar فقط؛ لم تُحوّل العبارة."
                 return null to cursor
             }
             return SourceStatement(bodyIndex + 1, body) to cursor
@@ -783,6 +805,50 @@ object PineScriptConverter {
         val compiledQuantity = quantityText?.let { parseExpression(it, line, errors) }
         if (quantityText != null && compiledQuantity == null) return
         entries += EntryRule(id, direction, conditionText, line, compiledCondition, quantityText, compiledQuantity)
+    }
+
+    private fun parseStrategyClose(
+        rawArguments: List<String>,
+        line: Int,
+        kind: ScriptKind?,
+        guardText: String?,
+        closes: MutableList<CloseRule>,
+        errors: MutableList<String>
+    ) {
+        if (kind != ScriptKind.STRATEGY) {
+            errors += "السطر " + line + ": strategy.close لا يُسمح به داخل indicator؛ يجب أن يكون التصريح strategy()."
+            return
+        }
+        val duplicates = duplicateNamedKeys(rawArguments)
+        if (duplicates.isNotEmpty()) {
+            errors += "السطر " + line + ": وسائط strategy.close مكررة: " + duplicates.sorted().joinToString(", ")
+            return
+        }
+        val (positional, named) = splitArguments(rawArguments)
+        if (positional.isEmpty() || positional.size > 2) {
+            errors += "السطر " + line + ": strategy.close يتطلب id ثابتاً، ويسمح بتعليق comment اختيارياً؛ وسائط الحجم غير مدعومة."
+            return
+        }
+        val unknown = named.keys - setOf("comment", "immediately")
+        if (unknown.isNotEmpty()) {
+            errors += "السطر " + line + ": وسائط strategy.close غير المدعومة: " + unknown.sorted().joinToString(", ") +
+                "؛ لا تُحاكى الكمية أو الرسائل أو إعدادات التنبيه."
+            return
+        }
+        if ("comment" in named && positional.size == 2) {
+            errors += "السطر " + line + ": لا تكرر comment موضعياً ومسمّى معاً."
+            return
+        }
+        if (named["immediately"] != null && named["immediately"]!!.trim() != "false") {
+            errors += "السطر " + line + ": strategy.close يدعم immediately=false فقط؛ الإغلاق الفوري داخل الشمعة غير ممثل."
+            return
+        }
+        val id = stringLiteral(positional[0], line, "id", errors) ?: return
+        val commentText = named["comment"] ?: positional.getOrNull(1)
+        if (commentText != null && stringLiteral(commentText, line, "comment", errors) == null) return
+        val conditionText = guardText ?: "true"
+        val compiledCondition = parseExpression(conditionText, line, errors) ?: return
+        closes += CloseRule(id, conditionText, line, compiledCondition)
     }
 
     private fun parseStrategyExit(

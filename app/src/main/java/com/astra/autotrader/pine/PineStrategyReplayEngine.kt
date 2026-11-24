@@ -1,6 +1,6 @@
 package com.astra.autotrader.pine
 
-enum class PineStrategyExitType { STOP, LIMIT }
+enum class PineStrategyExitType { STOP, LIMIT, MARKET_CLOSE }
 
 data class PineStrategyClosedTrade(
     val signalIndex: Int,
@@ -38,7 +38,8 @@ data class PineStrategyReplayReport(
     val matchedBars: Int = 0,
     val mismatchCount: Int = 0,
     val unavailableComparisonBars: Int = 0,
-    val mismatchSamples: List<PineReplayMismatch> = emptyList()
+    val mismatchSamples: List<PineReplayMismatch> = emptyList(),
+    val pendingCloseSignalIndex: Int? = null
 ) {
     val success: Boolean get() = errorArabic == null
     val matchRatePercent: Double?
@@ -98,8 +99,18 @@ object PineStrategyReplayEngine {
         if (conversion.exits.size > 1) {
             return failure("يدعم المحاكي strategy.exit واحدة فقط؛ تعدد أوامر الخروج أو ترتيب أولويتها غير مدعوم.")
         }
+        if (conversion.closes.size > 1) {
+            return failure("يدعم المحاكي strategy.close واحدة فقط؛ تعدد شروط الإغلاق غير مدعوم.")
+        }
 
         val exitRule = conversion.exits.singleOrNull()
+        val closeRule = conversion.closes.singleOrNull()
+        if (closeRule != null && closeRule.id != entry.id) {
+            return failure("معرّف strategy.close لا يطابق id لقاعدة الدخول الوحيدة.")
+        }
+        if (closeRule != null && exitRule != null) {
+            return failure("الجمع بين strategy.close وstrategy.exit غير مدعوم؛ أولوية أمر الإغلاق السوقي مقابل SL/TP غير ممثلة.")
+        }
         if (exitRule?.fromEntry != null && exitRule.fromEntry != entry.id) {
             return failure("from_entry في strategy.exit لا يطابق id لقاعدة الدخول الوحيدة.")
         }
@@ -137,6 +148,7 @@ object PineStrategyReplayEngine {
         val evaluator = PineScriptEvaluator(dataset.bars, conversion.compiledVariables, conversion.inputs, conversion.inputValues)
         val trades = mutableListOf<PineStrategyClosedTrade>()
         var pending: PendingEntry? = null
+        var pendingCloseSignalIndex: Int? = null
         var position: ActivePosition? = null
         var entrySignals = 0
         var ambiguousExitBars = 0
@@ -188,6 +200,21 @@ object PineStrategyReplayEngine {
             }
 
             var closedOnThisBar = false
+            val queuedCloseIndex = pendingCloseSignalIndex
+            if (queuedCloseIndex != null) {
+                pendingCloseSignalIndex = null
+                val closingPosition = position
+                if (closingPosition != null) {
+                    val sign = if (closingPosition.direction == PineScriptConverter.StrategyDirection.LONG) 1.0 else -1.0
+                    trades += PineStrategyClosedTrade(
+                        closingPosition.signalIndex, closingPosition.entryIndex, index,
+                        closingPosition.direction, closingPosition.entryPrice, bar.open,
+                        PineStrategyExitType.MARKET_CLOSE, (bar.open - closingPosition.entryPrice) * sign, false
+                    )
+                    position = null
+                    closedOnThisBar = true
+                }
+            }
             val currentPosition = position
             if (currentPosition != null && currentPosition.exitLevels != null) {
                 val fill = findExitFill(currentPosition, bar)
@@ -205,6 +232,14 @@ object PineStrategyReplayEngine {
             }
 
             val stillOpen = position
+            if (stillOpen != null && closeRule != null && pendingCloseSignalIndex == null) {
+                val closeValue = evaluator.evaluate(closeRule.compiledCondition, index) as? PineValue.Boolean
+                    ?: return failure(
+                        "تعذر تقييم شرط strategy.close عند الشمعة " + (index + 1) +
+                            "؛ أُوقف الاختبار بدلاً من افتراض إغلاق أو إبقاء المركز."
+                    )
+                if (closeValue.value) pendingCloseSignalIndex = index
+            }
             if (stillOpen != null && exitRule != null) {
                 val raw = evaluator.exitLevelsAt(exitRule, index)
                     ?: return failure(
@@ -248,6 +283,10 @@ object PineStrategyReplayEngine {
             add("المحاكاة تعمل على ملف OHLC محلي فقط؛ لا تتصل بـ Pocket Option ولا تفتح صفقات.")
             if (conversion.signals.isNotEmpty()) add("تم تجاهل alertcondition وplotshape/plotchar في محاكاة الأوامر؛ مصدر الدخول الوحيد هو strategy.entry.")
             if (usesTicks) add("تم تحويل loss/profit باستخدام tick size الذي أدخله المستخدم؛ صحة النتيجة تعتمد على صحة هذه القيمة.")
+            if (closeRule != null) {
+                add("شرط strategy.close يُقيّم عند إغلاق الشمعة ويُملأ بسعر افتتاح الشمعة التالية؛ يفترض immediately=false ولا يجمع مع strategy.exit.")
+                add("إذا بقي شرط الإغلاق معلّقاً عند نهاية ملف OHLC، يبقى المركز مفتوحاً وتظهر شمعة الإشارة المعلّقة دون تعبئة مفترضة.")
+            }
             if (dataset.expectedSignals != null) {
                 add("مقارنة الإشارات المرجعية تقيس شرط strategy.entry الخام لكل شمعة، ولا تقارن تعبئة الأوامر أو نتائج SL/TP أو محاكي TradingView.")
                 if (unavailableComparisonBars > 0) {
@@ -263,7 +302,8 @@ object PineStrategyReplayEngine {
             matchedBars = matchedBars,
             mismatchCount = mismatchCount,
             unavailableComparisonBars = unavailableComparisonBars,
-            mismatchSamples = mismatchSamples
+            mismatchSamples = mismatchSamples,
+            pendingCloseSignalIndex = pendingCloseSignalIndex
         )
     }
 
