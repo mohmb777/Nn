@@ -99,16 +99,12 @@ object PineStrategyReplayEngine {
         if (conversion.exits.size > 1) {
             return failure("يدعم المحاكي strategy.exit واحدة فقط؛ تعدد أوامر الخروج أو ترتيب أولويتها غير مدعوم.")
         }
-        if (conversion.closes.size > 1) {
-            return failure("يدعم المحاكي strategy.close واحدة فقط؛ تعدد شروط الإغلاق غير مدعوم.")
-        }
-
         val exitRule = conversion.exits.singleOrNull()
-        val closeRule = conversion.closes.singleOrNull()
-        if (closeRule != null && closeRule.id != entry.id) {
-            return failure("معرّف strategy.close لا يطابق id لقاعدة الدخول الوحيدة.")
+        val closeRules = conversion.closes
+        if (closeRules.any { it.id != entry.id }) {
+            return failure("معرّف إحدى قواعد strategy.close لا يطابق id لقاعدة الدخول الوحيدة.")
         }
-        if (closeRule != null && exitRule != null) {
+        if (closeRules.isNotEmpty() && exitRule != null) {
             return failure("الجمع بين strategy.close وstrategy.exit غير مدعوم؛ أولوية أمر الإغلاق السوقي مقابل SL/TP غير ممثلة.")
         }
         if (exitRule?.fromEntry != null && exitRule.fromEntry != entry.id) {
@@ -232,13 +228,18 @@ object PineStrategyReplayEngine {
             }
 
             val stillOpen = position
-            if (stillOpen != null && closeRule != null && pendingCloseSignalIndex == null) {
-                val closeValue = evaluator.evaluate(closeRule.compiledCondition, index) as? PineValue.Boolean
-                    ?: return failure(
-                        "تعذر تقييم شرط strategy.close عند الشمعة " + (index + 1) +
-                            "؛ أُوقف الاختبار بدلاً من افتراض إغلاق أو إبقاء المركز."
-                    )
-                if (closeValue.value) pendingCloseSignalIndex = index
+            if (stillOpen != null && closeRules.isNotEmpty() && pendingCloseSignalIndex == null) {
+                var closeTriggered = false
+                for (rule in closeRules) {
+                    val closeValue = evaluator.evaluate(rule.compiledCondition, index) as? PineValue.Boolean
+                        ?: return failure(
+                            "تعذر تقييم شرط strategy.close في السطر " + rule.sourceLine +
+                                " عند الشمعة " + (index + 1) +
+                                "؛ أُوقف الاختبار بدلاً من افتراض إغلاق أو إبقاء المركز."
+                        )
+                    if (closeValue.value) closeTriggered = true
+                }
+                if (closeTriggered) pendingCloseSignalIndex = index
             }
             if (stillOpen != null && exitRule != null) {
                 val raw = evaluator.exitLevelsAt(exitRule, index)
@@ -283,8 +284,11 @@ object PineStrategyReplayEngine {
             add("المحاكاة تعمل على ملف OHLC محلي فقط؛ لا تتصل بـ Pocket Option ولا تفتح صفقات.")
             if (conversion.signals.isNotEmpty()) add("تم تجاهل alertcondition وplotshape/plotchar في محاكاة الأوامر؛ مصدر الدخول الوحيد هو strategy.entry.")
             if (usesTicks) add("تم تحويل loss/profit باستخدام tick size الذي أدخله المستخدم؛ صحة النتيجة تعتمد على صحة هذه القيمة.")
-            if (closeRule != null) {
-                add("شرط strategy.close يُقيّم عند إغلاق الشمعة ويُملأ بسعر افتتاح الشمعة التالية؛ يفترض immediately=false ولا يجمع مع strategy.exit.")
+            if (closeRules.isNotEmpty()) {
+                if (closeRules.size > 1) {
+                    add("تُجمع شروط strategy.close المتعددة ذات المعرّف نفسه بمنطق OR؛ يتم تقييم كل شرط، ويكفي تحقق واحد لجدولة الإغلاق.")
+                }
+                add("شروط strategy.close تُقيّم عند إغلاق الشمعة ويُملأ الإغلاق بسعر افتتاح الشمعة التالية؛ يفترض immediately=false ولا يجمع مع strategy.exit.")
                 add("إذا بقي شرط الإغلاق معلّقاً عند نهاية ملف OHLC، يبقى المركز مفتوحاً وتظهر شمعة الإشارة المعلّقة دون تعبئة مفترضة.")
             }
             if (dataset.expectedSignals != null) {
