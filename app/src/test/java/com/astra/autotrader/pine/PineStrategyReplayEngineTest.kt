@@ -402,4 +402,61 @@ class PineStrategyReplayEngineTest {
         assertTrue(converted.errors.joinToString().contains("داخل indicator"))
     }
 
+
+    @Test fun combinesMultipleConditionalCloseRulesForSameEntryWithOrSemantics() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Multiple conditional closes")
+                enter = close > open
+                firstExit = close < open and close < 100
+                secondExit = close < open
+                strategy.entry("Entry", strategy.long, when=enter)
+                if firstExit
+                    strategy.close("Entry", comment="First condition")
+                if secondExit
+                    strategy.close("Entry", comment="Second condition")
+            """.trimIndent()
+        )
+        assertTrue(converted.errors.joinToString(), converted.supported)
+        assertEquals(2, converted.closes.size)
+        assertTrue(converted.closes.all { it.id == "Entry" })
+
+        val report = PineStrategyReplayEngine.run(converted, dataset(
+            bar(1_000, 100.0, 102.0, 99.5, 101.0),
+            bar(2_000, 102.0, 103.0, 100.0, 101.5),
+            bar(3_000, 101.0, 102.0, 100.0, 101.25)
+        ))
+
+        assertTrue(report.errorArabic ?: "simulation failed", report.success)
+        assertEquals(1, report.entrySignals)
+        assertEquals(1, report.trades.size)
+        val trade = report.trades.single()
+        assertEquals(1, trade.entryIndex)
+        assertEquals(2, trade.exitIndex)
+        assertEquals(101.0, trade.exitPrice, 1e-9)
+        assertEquals(PineStrategyExitType.MARKET_CLOSE, trade.exitType)
+        assertTrue(report.warnings.any { it.contains("منطق OR") })
+        assertNull(report.openPosition)
+        assertNull(report.pendingCloseSignalIndex)
+    }
+
+    @Test fun rejectsMultipleConditionalCloseRulesWithDifferentEntryIds() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Different close ids")
+                enter = close > open
+                leave = close < open
+                strategy.entry("Entry", strategy.long, when=enter)
+                if leave
+                    strategy.close("Entry")
+                if leave
+                    strategy.close("Other")
+            """.trimIndent()
+        )
+        assertFalse(converted.supported)
+        assertTrue(converted.errors.any { it.contains("اختلاف معرّفات الإغلاق") })
+    }
+
 }
