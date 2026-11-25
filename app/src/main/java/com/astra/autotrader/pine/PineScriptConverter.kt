@@ -377,11 +377,15 @@ object PineScriptConverter {
             errors += "المتغير أو الرمز غير المدعوم: " + identifier + "؛ لا يمكن تقييمه من OHLC أو تعريفات السكربت الحالية."
         }
 
-        if (closes.size > 1) {
-            errors += "يدعم المحاكي strategy.close واحدة فقط؛ تعدد شروط الإغلاق غير مدعوم حالياً."
+        if (closes.map { it.id }.distinct().size > 1) {
+            errors += "يدعم المحاكي عدة strategy.close فقط عندما تستخدم جميعها معرّف الدخول نفسه؛ اختلاف معرّفات الإغلاق غير مدعوم."
         }
         if (closes.isNotEmpty()) {
-            warnings += "strategy.close مدعوم كإغلاق سوقي لقاعدة الدخول الوحيدة عند افتتاح الشمعة التالية؛ لا يمكن جمعه مع strategy.exit في هذا الإصدار."
+            warnings += if (closes.size > 1) {
+                "تُجمع شروط strategy.close المتعددة ذات المعرّف نفسه بمنطق OR؛ عند تحقق أي شرط يُفترض الإغلاق عند افتتاح الشمعة التالية، ولا يمكن جمعها مع strategy.exit."
+            } else {
+                "strategy.close مدعوم كإغلاق سوقي لقاعدة الدخول الوحيدة عند افتتاح الشمعة التالية؛ لا يمكن جمعه مع strategy.exit في هذا الإصدار."
+            }
         }
         if (signals.isEmpty() && entries.isEmpty()) warnings += "لم يتم العثور على alertcondition أو plotshape/plotchar أو strategy.entry قابل للتحويل إلى إشارة."
         if (entries.any { it.conditionText == "true" }) {
