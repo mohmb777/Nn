@@ -50,6 +50,12 @@ object PineRiskAnalyzer {
             { "اعتماد على حالة لحظية أو تحديث داخل الشمعة؛ إعادة الاختبار الحالية تستخدم OHLC لشموع مكتملة فقط، وقد تختلف الإشارة قبل الإغلاق." }
         ),
         Rule(
+            "VARIP_INTRABAR_STATE",
+            PineRiskSeverity.ERROR,
+            Regex("""\\bvarip\\b"""),
+            { "varip يحتفظ بالحالة بين تحديثات الشمعة اللحظية ويتجاوز rollback؛ لا يمكن إعادة إنتاج هذا السلوك من شموع OHLC المكتملة فقط، لذلك رُفض السكربت." }
+        ),
+        Rule(
             "BARSTATE_CONFIRMED_UNMODELED",
             PineRiskSeverity.ERROR,
             Regex("""\bbarstate\s*\.\s*isconfirmed\b"""),
