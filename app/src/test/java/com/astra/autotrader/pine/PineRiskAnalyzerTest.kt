@@ -64,6 +64,49 @@ class PineRiskAnalyzerTest {
         assertTrue(findings.all { it.message.contains("شموع مكتملة") })
     }
 
+    @Test fun rejectsVaripBecauseRealtimeStateCannotBeReplayedFromClosedOhlc() {
+        val source = """
+            //@version=5
+            indicator("Varip state")
+            varip int updateCount = 0
+            updateCount += 1
+        """.trimIndent()
+
+        val finding = PineRiskAnalyzer.analyze(source).single()
+        assertEquals(3, finding.line)
+        assertEquals("VARIP_INTRABAR_STATE", finding.code)
+        assertEquals(PineRiskSeverity.ERROR, finding.severity)
+        assertTrue(finding.message.contains("varip"))
+        assertTrue(finding.message.contains("rollback"))
+        assertTrue(finding.message.contains("شموع OHLC المكتملة"))
+    }
+
+    @Test fun ignoresVaripInsideCommentsAndStringLiterals() {
+        val source = """
+            //@version=5
+            indicator("varip is only text")
+            // varip int commentOnly = 0
+            alertcondition(close > open, title="varip")
+        """.trimIndent()
+
+        assertTrue(PineRiskAnalyzer.analyze(source).isEmpty())
+    }
+
+    @Test fun converterRejectsVaripAndReportsItsSourceLine() {
+        val source = """
+            //@version=5
+            indicator("Varip integration")
+            varip int updateCount = 0
+            alertcondition(close > open, title="CALL")
+        """.trimIndent()
+
+        val conversion = PineScriptConverter.convert(source)
+        assertFalse(conversion.supported)
+        assertTrue(conversion.errors.any {
+            it.contains("السطر 3") && it.contains("varip") && it.contains("rollback")
+        })
+    }
+
     @Test fun rejectsUnmodeledBarstateConfirmed() {
         val finding = PineRiskAnalyzer.analyze(
             """
