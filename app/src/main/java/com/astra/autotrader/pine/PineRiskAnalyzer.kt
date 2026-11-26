@@ -52,7 +52,7 @@ object PineRiskAnalyzer {
         Rule(
             "VARIP_INTRABAR_STATE",
             PineRiskSeverity.ERROR,
-            Regex("""\\bvarip\\b"""),
+            Regex("""\bvarip\b"""),
             { "varip يحتفظ بالحالة بين تحديثات الشمعة اللحظية ويتجاوز rollback؛ لا يمكن إعادة إنتاج هذا السلوك من شموع OHLC المكتملة فقط، لذلك رُفض السكربت." }
         ),
         Rule(
