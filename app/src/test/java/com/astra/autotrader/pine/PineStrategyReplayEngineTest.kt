@@ -459,4 +459,66 @@ class PineStrategyReplayEngineTest {
         assertTrue(converted.errors.any { it.contains("اختلاف معرّفات الإغلاق") })
     }
 
+
+    @Test fun conditionalExitUpdatesOnlyWhenGuardIsTrueAndKeepsLastOrderWhenFalse() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Conditional exit persistence")
+                enter = close > open
+                armExit = close > open
+                strategy.entry("Entry", strategy.long, when=enter)
+                if armExit
+                    strategy.exit("Exit", from_entry="Entry", stop=close - 1)
+            """.trimIndent()
+        )
+        assertTrue(converted.errors.joinToString(), converted.supported)
+        assertEquals("close > open", converted.exits.single().guardText)
+
+        val report = PineStrategyReplayEngine.run(converted, dataset(
+            bar(1_000, 100.0, 102.0, 99.5, 101.0),
+            bar(2_000, 100.5, 102.0, 100.2, 101.5),
+            bar(3_000, 101.0, 102.0, 100.0, 100.5)
+        ))
+
+        assertTrue(report.errorArabic ?: "simulation failed", report.success)
+        assertEquals(1, report.entrySignals)
+        assertEquals(1, report.trades.size)
+        val trade = report.trades.single()
+        assertEquals(1, trade.entryIndex)
+        assertEquals(2, trade.exitIndex)
+        assertEquals(PineStrategyExitType.STOP, trade.exitType)
+        assertEquals(100.5, trade.exitPrice, 1e-9)
+        assertTrue(report.warnings.any { it.contains("يبقى آخر أمر خروج") })
+    }
+
+    @Test fun conditionalExitCanBePlacedAfterTheEntryBarWhenGuardWasInitiallyFalse() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Delayed conditional exit")
+                enter = close > open
+                armExit = close < open
+                strategy.entry("Entry", strategy.long, when=enter)
+                if armExit
+                    strategy.exit("Exit", from_entry="Entry", stop=close - 1)
+            """.trimIndent()
+        )
+        assertTrue(converted.errors.joinToString(), converted.supported)
+
+        val report = PineStrategyReplayEngine.run(converted, dataset(
+            bar(1_000, 100.0, 102.0, 99.5, 101.0),
+            bar(2_000, 100.5, 101.0, 100.2, 100.0),
+            bar(3_000, 100.0, 100.5, 98.5, 99.5)
+        ))
+
+        assertTrue(report.errorArabic ?: "simulation failed", report.success)
+        assertEquals(1, report.trades.size)
+        val trade = report.trades.single()
+        assertEquals(1, trade.entryIndex)
+        assertEquals(2, trade.exitIndex)
+        assertEquals(PineStrategyExitType.STOP, trade.exitType)
+        assertEquals(99.0, trade.exitPrice, 1e-9)
+    }
+
 }
