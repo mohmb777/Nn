@@ -521,4 +521,26 @@ class PineStrategyReplayEngineTest {
         assertEquals(99.0, trade.exitPrice, 1e-9)
     }
 
+
+    @Test fun rejectsConditionalExitWhenGuardDoesNotEvaluateToBoolean() {
+        val converted = PineScriptConverter.convert(
+            """
+                //@version=5
+                strategy("Invalid conditional exit")
+                enter = close > open
+                numericGuard = close - open
+                strategy.entry("Entry", strategy.long, when=enter)
+                if numericGuard
+                    strategy.exit("Exit", from_entry="Entry", stop=close - 1)
+            """.trimIndent()
+        )
+        assertTrue(converted.errors.joinToString(), converted.supported)
+        val report = PineStrategyReplayEngine.run(converted, dataset(
+            bar(1_000, 100.0, 102.0, 99.5, 101.0),
+            bar(2_000, 100.5, 102.0, 100.0, 101.5)
+        ))
+        assertFalse(report.success)
+        assertTrue(report.errorArabic!!.contains("شرط if"))
+    }
+
 }
