@@ -473,7 +473,7 @@ class PineStrategyReplayEngineTest {
             """.trimIndent()
         )
         assertTrue(converted.errors.joinToString(), converted.supported)
-        assertEquals("close > open", converted.exits.single().guardText)
+        assertEquals("armExit", converted.exits.single().guardText)
 
         val report = PineStrategyReplayEngine.run(converted, dataset(
             bar(1_000, 100.0, 102.0, 99.5, 101.0),
@@ -508,7 +508,7 @@ class PineStrategyReplayEngineTest {
 
         val report = PineStrategyReplayEngine.run(converted, dataset(
             bar(1_000, 100.0, 102.0, 99.5, 101.0),
-            bar(2_000, 100.5, 101.0, 100.2, 100.0),
+            bar(2_000, 100.5, 101.0, 99.8, 100.0),
             bar(3_000, 100.0, 100.5, 98.5, 99.5)
         ))
 
