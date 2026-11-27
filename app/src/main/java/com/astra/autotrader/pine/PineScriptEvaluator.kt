@@ -58,8 +58,10 @@ class PineScriptEvaluator(
         rule.compiledQuantity?.let { (evaluate(it, index) as? PineValue.Number)?.value }
 
     /** null يعني أن شرط الحارس لم ينتج قيمة منطقية قابلة للتقييم. */
-    fun exitConditionAt(rule: PineScriptConverter.ExitRule, index: Int): Boolean? =
-        rule.compiledGuard?.let { (evaluate(it, index) as? PineValue.Boolean)?.value } ?: true
+    fun exitConditionAt(rule: PineScriptConverter.ExitRule, index: Int): Boolean? {
+        val guard = rule.compiledGuard ?: return true
+        return (evaluate(guard, index) as? PineValue.Boolean)?.value
+    }
 
     fun exitLevelsAt(rule: PineScriptConverter.ExitRule, index: Int): PineExitLevels? {
         if (index !in bars.indices) return null
