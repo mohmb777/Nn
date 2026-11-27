@@ -97,7 +97,9 @@ object PineScriptConverter {
         val lossTicksText: String?,
         val compiledLossTicks: PineExpr?,
         val profitTicksText: String?,
-        val compiledProfitTicks: PineExpr?
+        val compiledProfitTicks: PineExpr?,
+        val guardText: String? = null,
+        val compiledGuard: PineExpr? = null
     )
 
     /** إغلاق سوقي مشروط؛ لا يحمل حجماً ولا ينفذ فوراً داخل الشمعة. */
@@ -288,11 +290,7 @@ object PineScriptConverter {
             }
 
             if (Regex("""^strategy\.exit\s*\(""").containsMatchIn(line)) {
-                if (guardText != null) {
-                    errors += "السطر " + lineNumber + ": strategy.exit داخل if/else غير مدعوم بعد؛ لم يتم إسقاط شرط الخروج أو تجاهله."
-                } else {
-                    parseStrategyExit(callArguments(line, "strategy.exit"), lineNumber, kind, exits, errors)
-                }
+                parseStrategyExit(callArguments(line, "strategy.exit"), lineNumber, kind, guardText, exits, errors)
                 return@forEach
             }
 
@@ -367,6 +365,7 @@ object PineScriptConverter {
             exits.mapNotNullTo(this) { it.compiledLimit }
             exits.mapNotNullTo(this) { it.compiledLossTicks }
             exits.mapNotNullTo(this) { it.compiledProfitTicks }
+            exits.mapNotNullTo(this) { it.compiledGuard }
             closes.mapTo(this) { it.compiledCondition }
         }
         val unknownIdentifiers = compiledExpressions
@@ -543,8 +542,8 @@ object PineScriptConverter {
 
             val bodyIndex = bodyLines.single()
             val body = clean(bodyIndex)
-            if (!Regex("""^(strategy\.entry|strategy\.close|alertcondition|plotshape|plotchar)\s*\(""").containsMatchIn(body)) {
-                errors += "السطر " + (bodyIndex + 1) + ": داخل if/else يُسمح حالياً بـ strategy.entry أو strategy.close أو alertcondition أو plotshape أو plotchar فقط؛ لم تُحوّل العبارة."
+            if (!Regex("""^(strategy\.entry|strategy\.exit|strategy\.close|alertcondition|plotshape|plotchar)\s*\(""").containsMatchIn(body)) {
+                errors += "السطر " + (bodyIndex + 1) + ": داخل if/else يُسمح حالياً بـ strategy.entry أو strategy.exit أو strategy.close أو alertcondition أو plotshape أو plotchar فقط؛ لم تُحوّل العبارة."
                 return null to cursor
             }
             return SourceStatement(bodyIndex + 1, body) to cursor
@@ -859,6 +858,7 @@ object PineScriptConverter {
         rawArguments: List<String>,
         line: Int,
         kind: ScriptKind?,
+        guardText: String?,
         exits: MutableList<ExitRule>,
         errors: MutableList<String>
     ) {
@@ -906,9 +906,14 @@ object PineScriptConverter {
         val limit = limitText?.let { parseExpression(it, line, errors) }
         val loss = lossText?.let { parseExpression(it, line, errors) }
         val profit = profitText?.let { parseExpression(it, line, errors) }
+        val compiledGuard = guardText?.let { parseExpression(it, line, errors) }
         if ((stopText != null && stop == null) || (limitText != null && limit == null) ||
-            (lossText != null && loss == null) || (profitText != null && profit == null)) return
-        exits += ExitRule(id, fromEntry, line, stopText, stop, limitText, limit, lossText, loss, profitText, profit)
+            (lossText != null && loss == null) || (profitText != null && profit == null) ||
+            (guardText != null && compiledGuard == null)) return
+        exits += ExitRule(
+            id, fromEntry, line, stopText, stop, limitText, limit, lossText, loss, profitText, profit,
+            guardText, compiledGuard
+        )
     }
 
     private val inputCalls = setOf("input", "input.int", "input.float", "input.bool", "input.string", "input.source")
