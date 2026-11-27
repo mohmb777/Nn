@@ -596,6 +596,7 @@ private fun PineConverterScreen(modifier: Modifier = Modifier) {
                         "خروج ${exit.id}",
                         listOfNotNull(
                             exit.fromEntry?.let { "من الدخول: $it" },
+                            exit.guardText?.let { "شرط التفعيل: if ($it)" },
                             exit.stopText?.let { "SL/stop: $it" },
                             exit.limitText?.let { "TP/limit: $it" },
                             exit.lossTicksText?.let { "loss: $it ticks" },
