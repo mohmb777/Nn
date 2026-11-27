@@ -242,23 +242,36 @@ object PineStrategyReplayEngine {
                 if (closeTriggered) pendingCloseSignalIndex = index
             }
             if (stillOpen != null && exitRule != null) {
-                val raw = evaluator.exitLevelsAt(exitRule, index)
+                val shouldUpdateExit = evaluator.exitConditionAt(exitRule, index)
                     ?: return failure(
-                        "تعذر تقييم strategy.exit عند الشمعة " + (index + 1) +
-                            "؛ أُوقف الاختبار بدلاً من إبقاء مستويات قديمة أو تخمينها."
+                        "تعذر تقييم شرط if المرتبط بـ strategy.exit في السطر " + exitRule.sourceLine +
+                            " عند الشمعة " + (index + 1) + "."
                     )
-                val resolution = resolveLevels(
-                    raw, stillOpen.direction, stillOpen.entryPrice, bar.close, tickSize
-                )
-                resolution.errorArabic?.let { return failure(it) }
-                position = stillOpen.copy(exitLevels = resolution.levels)
+                if (shouldUpdateExit) {
+                    val raw = evaluator.exitLevelsAt(exitRule, index)
+                        ?: return failure(
+                            "تعذر تقييم مستويات strategy.exit عند الشمعة " + (index + 1) +
+                                "؛ أُوقف الاختبار بدلاً من إلغاء أمر خروج قائم أو تخمينه."
+                        )
+                    val resolution = resolveLevels(
+                        raw, stillOpen.direction, stillOpen.entryPrice, bar.close, tickSize
+                    )
+                    resolution.errorArabic?.let { return failure(it) }
+                    position = stillOpen.copy(exitLevels = resolution.levels)
+                }
+                // إذا كان الحارس false، يبقى آخر أمر خروج موضوع فعالاً كما هو.
             }
 
             if (position == null && pending == null && !closedOnThisBar &&
                 entryCondition == true
             ) {
                 val raw = if (exitRule == null) null else {
-                    evaluator.exitLevelsAt(exitRule, index)
+                    val shouldPlaceExit = evaluator.exitConditionAt(exitRule, index)
+                        ?: return failure(
+                            "تعذر تقييم شرط if المرتبط بـ strategy.exit في السطر " + exitRule.sourceLine +
+                                " عند شمعة إشارة الدخول " + (index + 1) + "."
+                        )
+                    if (!shouldPlaceExit) null else evaluator.exitLevelsAt(exitRule, index)
                         ?: return failure("تعذر تقييم مستويات strategy.exit عند شمعة إشارة الدخول " + (index + 1) + ".")
                 }
                 if (raw != null) {
@@ -284,6 +297,10 @@ object PineStrategyReplayEngine {
             add("المحاكاة تعمل على ملف OHLC محلي فقط؛ لا تتصل بـ Pocket Option ولا تفتح صفقات.")
             if (conversion.signals.isNotEmpty()) add("تم تجاهل alertcondition وplotshape/plotchar في محاكاة الأوامر؛ مصدر الدخول الوحيد هو strategy.entry.")
             if (usesTicks) add("تم تحويل loss/profit باستخدام tick size الذي أدخله المستخدم؛ صحة النتيجة تعتمد على صحة هذه القيمة.")
+            if (exitRule?.guardText != null) {
+                add("أمر strategy.exit المشروط يُحدّث مستوياته عند تحقق شرط if فقط؛ إذا أصبح الشرط false يبقى آخر أمر خروج موضوع فعالاً حتى التعبئة أو نهاية البيانات.")
+                add("تمثل المحاكاة استدعاء strategy.exit واحداً مشروطاً فقط؛ لا تدعم إلغاء الأوامر أو تعدد أوامر الخروج أو ترتيب OCA.")
+            }
             if (closeRules.isNotEmpty()) {
                 if (closeRules.size > 1) {
                     add("تُجمع شروط strategy.close المتعددة ذات المعرّف نفسه بمنطق OR؛ يتم تقييم كل شرط، ويكفي تحقق واحد لجدولة الإغلاق.")
