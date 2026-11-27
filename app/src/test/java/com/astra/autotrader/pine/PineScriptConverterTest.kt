@@ -675,8 +675,10 @@ class PineScriptConverterTest {
             if close < open
                 strategy.exit("Exit", from_entry="Long", stop=close + 1)
         """.trimIndent())
-        assertFalse(conditionalExit.supported)
-        assertTrue(conditionalExit.errors.any { it.contains("داخل if/else") })
+        assertTrue(conditionalExit.errors.joinToString(), conditionalExit.supported)
+        assertEquals(1, conditionalExit.exits.size)
+        assertEquals("close < open", conditionalExit.exits.single().guardText)
+        assertNotNull(conditionalExit.exits.single().compiledGuard)
     }
 
     @Test fun smaIgnoresNaAndUsesTheLatestLengthNonNaValues() {
