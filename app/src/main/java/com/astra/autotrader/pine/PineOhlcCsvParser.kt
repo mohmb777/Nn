@@ -78,10 +78,6 @@ object PineOhlcCsvParser {
             return failure(error.message ?: "عناوين CSV غير صالحة.")
         }
 
-        val requiredLastIndex = listOfNotNull(
-            timeIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex, expectedIndex
-        ).maxOrNull() ?: return failure("تعذر تحديد أعمدة OHLC.")
-
         val bars = mutableListOf<PineOhlcBar>()
         val expectedSignals = if (expectedIndex != null) mutableListOf<PineSignalAction?>() else null
         var previousTime: Long? = null
@@ -95,8 +91,10 @@ object PineOhlcCsvParser {
 
             val fields = splitCsvLine(line, delimiter)
                 ?: return failure("صيغة CSV غير صالحة في السطر ${lineIndex + 1}: علامات اقتباس غير مكتملة.")
-            if (fields.size <= requiredLastIndex) {
-                return failure("عدد الأعمدة غير كافٍ في السطر ${lineIndex + 1}.")
+            if (fields.size != headers.size) {
+                return failure(
+                    "عدد الحقول في السطر ${lineIndex + 1} (${fields.size}) لا يطابق عدد أعمدة العنوان (${headers.size})؛ رُفض الصف لضمان محاذاة OHLC والإشارة المرجعية."
+                )
             }
 
             val rawTime = fields[timeIndex].trim()
