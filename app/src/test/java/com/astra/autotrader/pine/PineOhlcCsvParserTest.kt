@@ -111,6 +111,29 @@ class PineOhlcCsvParserTest {
         )
     }
 
+    @Test fun rejectsRowsWithMissingOrExtraFieldsToProtectReferenceAlignment() {
+        val missingReferenceCell = """
+            time,open,high,low,close,expected_signal
+            1794219000000,1.10,1.12,1.09,1.11
+        """.trimIndent()
+        val extraCell = """
+            time,open,high,low,close,expected_signal
+            1794219000000,1.10,1.12,1.09,1.11,CALL,unexpected
+        """.trimIndent()
+
+        val missing = PineOhlcCsvParser.parse(missingReferenceCell)
+        val extra = PineOhlcCsvParser.parse(extraCell)
+
+        assertFalse(missing.success)
+        assertTrue(missing.errorArabic!!.contains("محاذاة"))
+        assertTrue(missing.errorArabic!!.contains("(5)"))
+        assertTrue(missing.errorArabic!!.contains("(6)"))
+        assertFalse(extra.success)
+        assertTrue(extra.errorArabic!!.contains("محاذاة"))
+        assertTrue(extra.errorArabic!!.contains("(7)"))
+        assertTrue(extra.errorArabic!!.contains("(6)"))
+    }
+
     @Test fun rejectsUnclosedQuotesAndOversizedInput() {
         val malformed = "time,open,high,low,close\n1794219000000,1.1,1.2,1.0,\"1.1"
         val oversized = "x".repeat(PineOhlcCsvParser.MAX_CSV_CHARS + 1)
